@@ -7,7 +7,6 @@ public enum NotesError: Error, LocalizedError, Sendable {
     case databaseCorrupted(underlying: Error)
     case databaseMissing
     case scriptingBridgeError(message: String, number: Int?)
-    case configNotFound
     case encodingFailure(reason: String)
     case commandFailed(message: String)
 
@@ -28,8 +27,6 @@ public enum NotesError: Error, LocalizedError, Sendable {
                 return "Notes write error (\(number)): \(message)"
             }
             return "Notes write error: \(message)"
-        case .configNotFound:
-            return "Configuration not found."
         case .encodingFailure(let reason):
             return "Encoding failure: \(reason)"
         case .commandFailed(let message):
@@ -39,7 +36,7 @@ public enum NotesError: Error, LocalizedError, Sendable {
 
     public var exitCode: Int32 {
         switch self {
-        case .noteNotFound, .folderNotFound, .configNotFound:
+        case .noteNotFound, .folderNotFound:
             return 1
         case .appleNotesUnavailable, .databaseCorrupted, .databaseMissing,
              .scriptingBridgeError, .encodingFailure:

@@ -69,8 +69,7 @@ struct InitCommand: AsyncParsableCommand {
         do {
             return try await resolveNotesAccountSelection()
         } catch let error as NotesError {
-            if case .commandFailed(let msg) = error,
-               msg.contains("NoteStore cache not found") || msg.contains("Cannot access") || msg.contains("Failed to copy") {
+            if case .commandFailed(let msg) = error, msg.contains("Cannot access") {
                 return "iCloud"
             }
             throw error
@@ -83,8 +82,7 @@ struct InitCommand: AsyncParsableCommand {
         do {
             return try await resolveNotesAccounts()
         } catch let error as NotesError {
-            if case .commandFailed(let msg) = error,
-               msg.contains("NoteStore cache not found") || msg.contains("Cannot access") || msg.contains("Failed to copy") {
+            if case .commandFailed(let msg) = error, msg.contains("Cannot access") {
                 return [fallback]
             }
             throw error

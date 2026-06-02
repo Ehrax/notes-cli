@@ -36,7 +36,7 @@ public final class NoteStoreReader: Sendable {
         FileManager.default.fileExists(atPath: sourceDBPath())
     }
 
-    /// Fetch all account names from the cache.
+    /// Fetch all account names from the live NoteStore.
     public func fetchAccountNames() throws -> [String] {
         let db = try openDB()
         return try db.read { conn in
