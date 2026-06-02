@@ -1,4 +1,6 @@
-.PHONY: build release run run-verbose test test-core test-cli test-integration test-e2e proto clean lint setup
+.PHONY: build release install run run-verbose test test-core test-cli test-integration test-e2e proto clean lint setup
+
+PREFIX ?= /usr/local
 
 # Build
 build:
@@ -6,6 +8,13 @@ build:
 
 release:
 	swift build -c release
+
+# Install the release binary so `notes-cli` is callable globally.
+# Override the location with: make install PREFIX=$HOME/.local
+install: release
+	install -d "$(PREFIX)/bin"
+	install .build/release/notes-cli "$(PREFIX)/bin/notes-cli"
+	@echo "Installed notes-cli to $(PREFIX)/bin/notes-cli"
 
 # Test
 test:
