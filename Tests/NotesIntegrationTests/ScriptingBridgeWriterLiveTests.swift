@@ -108,4 +108,48 @@ struct ScriptingBridgeWriterLiveTests {
         try await writer.deleteFolder(path: renamed)
         #expect(try await waitForFolders(reader) { folders in !folders.contains { $0.path.contains(suffix) } })
     }
+
+    @Test("folder move recreates the subtree, relocates notes (ids preserved), deletes source")
+    func folderMoveRoundTrip() async throws {
+        guard liveEnabled else { return }
+        let writer = await ScriptingBridgeWriter(scope: .default)
+        guard try await writer.isAvailable() else {
+            Issue.record("Notes/Automation unavailable")
+            return
+        }
+        let reader = NoteStoreReader()
+        let service = DirectNotesService(reader: reader, writer: writer, scope: .default, aiFooterEnabled: false)
+        let suffix = String(UUID().uuidString.prefix(8))
+        let root = "notes-cli-test-\(suffix)"
+        try await writer.createFolder(name: root, parentName: nil)
+        try await writer.createFolder(name: "dest", parentName: root)
+        try await writer.createFolder(name: "mover", parentName: root)
+        try await writer.createFolder(name: "sub", parentName: "\(root)/mover")
+        defer { Task { try? await writer.deleteFolder(path: root) } }
+
+        // A note in the folder and one in its subfolder — both must travel with the move.
+        let topNote = try await writer.createNote(
+            title: "top \(suffix)", bodyHTML: "<div>top</div>", folderName: "\(root)/mover"
+        )
+        let subNote = try await writer.createNote(
+            title: "sub \(suffix)", bodyHTML: "<div>sub</div>", folderName: "\(root)/mover/sub"
+        )
+        _ = try await waitForNote(reader, id: topNote) { $0?.folderPath.hasSuffix("\(root)/mover") ?? false }
+        _ = try await waitForNote(reader, id: subNote) { $0?.folderPath.hasSuffix("\(root)/mover/sub") ?? false }
+
+        // Move `mover` (its note + subfolder + subnote) under `dest`.
+        try await service.moveFolder(path: "\(root)/mover", toParent: "\(root)/dest")
+
+        // Subtree recreated under dest; the original source folder is gone.
+        #expect(try await waitForFolders(reader) { folders in
+            folders.contains { $0.path.hasSuffix("\(root)/dest/mover/sub") }
+                && !folders.contains { $0.path.hasSuffix("\(root)/mover") }
+        })
+
+        // Notes relocated under the same ids — moveNote preserves identity.
+        let movedTop = try await waitForNote(reader, id: topNote) { $0?.folderPath.hasSuffix("\(root)/dest/mover") ?? false }
+        #expect(movedTop?.folderPath.hasSuffix("\(root)/dest/mover") == true)
+        let movedSub = try await waitForNote(reader, id: subNote) { $0?.folderPath.hasSuffix("\(root)/dest/mover/sub") ?? false }
+        #expect(movedSub?.folderPath.hasSuffix("\(root)/dest/mover/sub") == true)
+    }
 }

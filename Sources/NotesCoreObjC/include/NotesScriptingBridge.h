@@ -56,11 +56,8 @@ BOOL NotesSBDeleteFolder(NSString *_Nullable accountName,
                          NSString *path,
                          NSError *_Nullable *_Nullable error);
 
-/// Move the folder at `path` into the destination container at `destParentPath`
-/// (nil/empty = account root).
-BOOL NotesSBMoveFolder(NSString *_Nullable accountName,
-                       NSString *path,
-                       NSString *_Nullable destParentPath,
-                       NSError *_Nullable *_Nullable error);
+// NOTE: There is deliberately no folder-move primitive. Apple Notes' scripting `move` command
+// marks a folder for deletion instead of re-parenting it, so a folder move is composed in Swift
+// (DirectNotesService) from create + per-note move + delete. See ADR 0002.
 
 NS_ASSUME_NONNULL_END

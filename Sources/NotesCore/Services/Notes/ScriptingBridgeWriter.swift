@@ -81,14 +81,9 @@ public final class ScriptingBridgeWriter: Sendable {
         }
     }
 
-    public func moveFolder(path: String, toParent parentPath: String?) throws {
-        let target = resolved(path)
-        let parent = parentPath.map(resolved) ?? (account: scope.selectedAccount, path: "")
-        var error: NSError?
-        if !NotesSBMoveFolder(target.account, target.path, parent.path.isEmpty ? nil : parent.path, &error) {
-            throw Self.mapError(error)
-        }
-    }
+    // Folder moves are not a single ScriptingBridge call: Apple's `move` command deletes folders
+    // rather than re-parenting them (ADR 0002). DirectNotesService composes a move from
+    // createFolder + per-note moveNote + deleteFolder, which the writer already exposes.
 
     // MARK: - Availability
 

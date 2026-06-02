@@ -113,7 +113,77 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
         try await writer.deleteFolder(path: path)
     }
 
+    /// Relocate a folder. Apple's scripting `move` deletes folders rather than re-parenting
+    /// them (ADR 0002), so a move is a recreate-and-move-notes plan: recreate the source subtree
+    /// under the new parent, move every note in (note ids survive the move), then delete the
+    /// emptied source. Not atomic — a mid-way failure throws before the source is deleted, so
+    /// notes are never lost.
     public func moveFolder(path: String, toParent parentPath: String?) async throws {
-        try await writer.moveFolder(path: path, toParent: parentPath)
+        let account = try resolveAccountName()
+        let source = Self.accountRelative(scope.resolvedFolderPath(path), account: account)
+        let destParent = parentPath.map { Self.accountRelative(scope.resolvedFolderPath($0), account: account) }
+
+        let subtree = try gatherSubtree(source: source, account: account)
+        let plan: FolderMovePlanner.Plan
+        do {
+            plan = try FolderMovePlanner.plan(
+                source: source, destParent: destParent,
+                subtreeFolders: subtree.folders, notes: subtree.notes
+            )
+        } catch let error as FolderMovePlanner.PlanError {
+            throw Self.mapPlanError(error, path: path)
+        }
+
+        for create in plan.creates {
+            try await writer.createFolder(name: create.name, parentName: create.parent)
+        }
+        for move in plan.moves {
+            try await writer.moveNote(id: move.id, toFolder: move.toFolder)
+        }
+        try await writer.deleteFolder(path: plan.delete)
+    }
+
+    // MARK: - Folder-move helpers
+
+    private func resolveAccountName() throws -> String {
+        if let account = scope.selectedAccount, !account.isEmpty { return account }
+        return try reader.fetchDefaultAccountName() ?? ""
+    }
+
+    /// Gather the source folder + its descendants and the notes living anywhere within, all as
+    /// account-relative paths. Locked notes are included: they must move with the folder, never
+    /// be deleted with it.
+    private func gatherSubtree(
+        source: String, account: String
+    ) throws -> (folders: [String], notes: [FolderMovePlanner.NoteRef]) {
+        let inSubtree: (String) -> Bool = { $0 == source || $0.hasPrefix(source + "/") }
+        let folders = try reader.fetchFolders()
+            .map { Self.accountRelative($0.path, account: account) }
+            .filter(inSubtree)
+        let notes = try reader.fetchAllNoteMetadata().compactMap { meta -> FolderMovePlanner.NoteRef? in
+            let folder = Self.accountRelative(meta.folderPath, account: account)
+            guard inSubtree(folder) else { return nil }
+            return FolderMovePlanner.NoteRef(id: meta.id, folder: folder)
+        }
+        return (folders, notes)
+    }
+
+    /// Strip the leading account-name component, yielding an account-relative path.
+    private static func accountRelative(_ path: String, account: String) -> String {
+        guard !account.isEmpty else { return path }
+        if path == account { return "" }
+        if path.hasPrefix(account + "/") { return String(path.dropFirst(account.count + 1)) }
+        return path
+    }
+
+    private static func mapPlanError(_ error: FolderMovePlanner.PlanError, path: String) -> NotesError {
+        switch error {
+        case .sourceNotFound:
+            return .folderNotFound(path: path)
+        case .alreadyAtDestination:
+            return .commandFailed(message: "Folder is already in that location: \(path)")
+        case .intoOwnSubtree:
+            return .commandFailed(message: "Cannot move a folder into its own subtree: \(path)")
+        }
     }
 }

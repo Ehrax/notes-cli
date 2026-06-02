@@ -174,24 +174,6 @@ BOOL NotesSBDeleteFolder(NSString *_Nullable accountName, NSString *path, NSErro
     return YES;
 }
 
-BOOL NotesSBMoveFolder(NSString *_Nullable accountName,
-                       NSString *path,
-                       NSString *_Nullable destParentPath,
-                       NSError **error) {
-    NotesApplication *app = NCApp();
-    NotesFolder *folder = NCResolveFolder(app, accountName, path, error);
-    if (!folder) { return NO; }
-    SBObject *dest;
-    if (destParentPath.length > 0) {
-        dest = NCResolveContainer(app, accountName, destParentPath, error);
-        if (!dest) { return NO; }
-    } else {
-        dest = (SBObject *)NCResolveAccount(app, accountName);
-        if (!dest) {
-            if (error) { *error = NCError(@"account not found"); }
-            return NO;
-        }
-    }
-    [folder moveTo:dest];
-    return YES;
-}
+// NOTE: No NotesSBMoveFolder. Apple Notes' scripting `move` command marks a folder for deletion
+// rather than re-parenting it (verified: the moved folder gets zmarkedfordeletion=1), so folder
+// moves are composed in Swift from create + per-note move + delete. See ADR 0002.
