@@ -58,61 +58,6 @@ enum OutputFormatter {
         }
     }
 
-    static func printTags(_ tags: [Tag], format: OutputFormat) throws {
-        switch format {
-        case .json:
-            try JSONOutputFormatter.print(tags)
-        case .table:
-            TableFormatter.printTags(tags)
-        case .markdown:
-            MarkdownFormatter.printTags(tags)
-        }
-    }
-
-    static func printLinks(_ links: [Link], format: OutputFormat) throws {
-        switch format {
-        case .json:
-            try JSONOutputFormatter.print(links)
-        case .table:
-            TableFormatter.printLinks(links)
-        case .markdown:
-            MarkdownFormatter.printLinks(links)
-        }
-    }
-
-    static func printSyncResult(_ result: SyncResult, format: OutputFormat) throws {
-        switch format {
-        case .json:
-            try JSONOutputFormatter.print(result)
-        case .table:
-            TableFormatter.printSyncResult(result)
-        case .markdown:
-            MarkdownFormatter.printSyncResult(result)
-        }
-    }
-
-    static func printHistory(_ actions: [ActionSummary], format: OutputFormat) throws {
-        switch format {
-        case .json:
-            try JSONOutputFormatter.print(actions)
-        case .table:
-            TableFormatter.printHistory(actions)
-        case .markdown:
-            MarkdownFormatter.printHistory(actions)
-        }
-    }
-
-    static func printUndoResult(_ result: UndoResult, format: OutputFormat) throws {
-        switch format {
-        case .json:
-            try JSONOutputFormatter.print(result)
-        case .table:
-            TableFormatter.printUndoResult(result)
-        case .markdown:
-            MarkdownFormatter.printUndoResult(result)
-        }
-    }
-
     static func printMessage(_ message: String, format: OutputFormat) throws {
         switch format {
         case .json:

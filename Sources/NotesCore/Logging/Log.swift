@@ -8,12 +8,7 @@ public enum Log {
 
     // MARK: - Per-service loggers
 
-    public static let sync = Logger(subsystem: subsystem, category: "sync")
-    public static let database = Logger(subsystem: subsystem, category: "database")
-    public static let applescript = Logger(subsystem: subsystem, category: "applescript")
-    public static let safety = Logger(subsystem: subsystem, category: "safety")
     public static let config = Logger(subsystem: subsystem, category: "config")
-    public static let reminders = Logger(subsystem: subsystem, category: "reminders")
     public static let general = Logger(subsystem: subsystem, category: "general")
 
     // MARK: - Verbose flag

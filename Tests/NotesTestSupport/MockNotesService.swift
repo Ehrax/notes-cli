@@ -15,6 +15,7 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     public var fetchAccountNamesCalled = false
     public var fetchDefaultAccountNameCalled = false
     public var fetchAllNotesCalled = false
+    public var searchNotesCalled = false
     public var fetchAllNoteMetadataCalled = false
     public var fetchNoteCalled = false
     public var createNoteCalled = false
@@ -23,6 +24,9 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     public var moveNoteCalled = false
     public var fetchFoldersCalled = false
     public var createFolderCalled = false
+    public var renameFolderCalled = false
+    public var deleteFolderCalled = false
+    public var moveFolderCalled = false
     public var isAvailableCalled = false
 
     public var lastFetchedNoteID: String?
@@ -36,8 +40,15 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     public var lastDeletedID: String?
     public var lastMovedID: String?
     public var lastMovedFolder: String?
+    public var lastSearchQuery: String?
+    public var lastSearchLimit: Int?
     public var lastCreatedFolderName: String?
     public var lastCreatedFolderParent: String?
+    public var lastRenamedFolderPath: String?
+    public var lastRenamedFolderNewName: String?
+    public var lastDeletedFolderPath: String?
+    public var lastMovedFolderPath: String?
+    public var lastMovedFolderParent: String?
 
     public var errorToThrow: Error?
     public var fetchNoteSequence: [AppleNoteRaw?] = []
@@ -108,6 +119,14 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
                 isLocked: $0.isLocked
             )
         }
+    }
+
+    public func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw] {
+        searchNotesCalled = true
+        lastSearchQuery = query
+        lastSearchLimit = limit
+        if let error = errorToThrow { throw error }
+        return NoteSearch.rank(notes: notes, query: query, limit: limit)
     }
 
     public func fetchNote(id: String) async throws -> AppleNoteRaw? {
@@ -201,6 +220,32 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
         if let error = errorToThrow { throw error }
         let path = resolvedParentName.map { "\($0)/\(name)" } ?? scopedFolderPath(name)
         folders.append(AppleFolderRaw(id: "x-coredata://mock/\(UUID().uuidString)", name: name, path: path, parentPath: resolvedParentName))
+    }
+
+    public func renameFolder(path: String, newName: String) async throws {
+        renameFolderCalled = true
+        lastRenamedFolderPath = resolvedFolderPath(path)
+        lastRenamedFolderNewName = newName
+        if let error = errorToThrow { throw error }
+        if let index = folders.firstIndex(where: { $0.path == lastRenamedFolderPath }) {
+            folders[index].name = newName
+        }
+    }
+
+    public func deleteFolder(path: String) async throws {
+        deleteFolderCalled = true
+        let resolvedPath = resolvedFolderPath(path)
+        lastDeletedFolderPath = resolvedPath
+        if let error = errorToThrow { throw error }
+        folders.removeAll { $0.path == resolvedPath }
+    }
+
+    public func moveFolder(path: String, toParent parentPath: String?) async throws {
+        moveFolderCalled = true
+        lastMovedFolderPath = resolvedFolderPath(path)
+        let resolvedParentName = parentPath.map { resolvedFolderPath($0) }
+        lastMovedFolderParent = resolvedParentName
+        if let error = errorToThrow { throw error }
     }
 
     public func isAvailable() async throws -> Bool {

@@ -494,6 +494,33 @@ struct ProtobufToMarkdownTests {
         #expect(result.markdown.contains("#travel"))
     }
 
+    @Test("Hashtag-only line and trailing #Capitalized survive as text")
+    func hashtagsSurvive() throws {
+        let resolver = MockAttachmentResolver()
+        resolver.inlineTexts["tag-travel"] = "#travel"
+        resolver.inlineTexts["tag-cap"] = "#Capitalized"
+        let data = try makeNoteData(
+            noteText: "Body line\n\u{FFFC}\nMore body \u{FFFC}\n",
+            runs: [
+                makeRun(text: "Body line\n"),
+                makeRun(
+                    text: "\u{FFFC}\n",
+                    attachmentUUID: "tag-travel",
+                    attachmentUTI: "com.apple.notes.inlinetextattachment.hashtag"
+                ),
+                makeRun(text: "More body "),
+                makeRun(
+                    text: "\u{FFFC}\n",
+                    attachmentUUID: "tag-cap",
+                    attachmentUTI: "com.apple.notes.inlinetextattachment.hashtag"
+                ),
+            ]
+        )
+        let result = try ProtobufToMarkdown.convert(data: data, resolver: resolver)
+        #expect(result.markdown.contains("#travel"))
+        #expect(result.markdown.contains("#Capitalized"))
+    }
+
     @Test("URL card renders as plain link — no bold on link text")
     func urlCard() throws {
         let resolver = MockAttachmentResolver()

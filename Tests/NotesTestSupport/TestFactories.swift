@@ -1,11 +1,6 @@
 import Foundation
 import NotesCore
 
-/// Creates a real DatabaseService backed by an in-memory SQLite database.
-public func makeRealDatabase() throws -> DatabaseService {
-    try DatabaseService(path: ":memory:")
-}
-
 /// Factory for creating sample Note instances in tests.
 public func makeSampleNote(
     id: String = "note-1",

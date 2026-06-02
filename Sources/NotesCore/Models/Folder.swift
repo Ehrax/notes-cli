@@ -29,6 +29,6 @@ public struct Folder: Codable, Sendable, Equatable {
     }
 }
 
-extension Folder: FetchableRecord, PersistableRecord {
+extension Folder: FetchableRecord {
     public static let databaseTableName = "folder"
 }

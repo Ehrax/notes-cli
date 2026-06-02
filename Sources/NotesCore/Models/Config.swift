@@ -78,18 +78,6 @@ public struct Config: Codable, Sendable {
         }
     }
 
-    /// Folder paths that are protected from writes.
-    public var protectedFolders: [String]
-
-    /// Whether locked notes should be guarded from modification.
-    public var lockedNotes: Bool
-
-    /// Whether to soft-delete (archive) instead of permanently removing notes.
-    public var softDelete: Bool
-
-    /// Maximum number of undo history entries to retain.
-    public var undoHistory: Int
-
     /// Default output format for CLI display.
     public var defaultFormat: OutputFormat?
 
@@ -103,46 +91,27 @@ public struct Config: Codable, Sendable {
     }
 
     public init(
-        protectedFolders: [String] = [],
-        lockedNotes: Bool = true,
-        softDelete: Bool = true,
-        undoHistory: Int = 50,
         defaultFormat: OutputFormat? = nil,
         notes: NotesScope = .default
     ) {
-        self.protectedFolders = protectedFolders
-        self.lockedNotes = lockedNotes
-        self.softDelete = softDelete
-        self.undoHistory = undoHistory
         self.defaultFormat = defaultFormat
         self.notes = notes
     }
 
     enum CodingKeys: String, CodingKey {
-        case protectedFolders
-        case lockedNotes
-        case softDelete
-        case undoHistory
         case defaultFormat
         case notes
     }
 
     public init(from decoder: Decoder) throws {
+        // Tolerant of unknown keys: legacy config.json files still load.
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        protectedFolders = try container.decodeIfPresent([String].self, forKey: .protectedFolders) ?? []
-        lockedNotes = try container.decodeIfPresent(Bool.self, forKey: .lockedNotes) ?? true
-        softDelete = try container.decodeIfPresent(Bool.self, forKey: .softDelete) ?? true
-        undoHistory = try container.decodeIfPresent(Int.self, forKey: .undoHistory) ?? 50
         defaultFormat = try container.decodeIfPresent(OutputFormat.self, forKey: .defaultFormat)
         notes = try container.decodeIfPresent(NotesScope.self, forKey: .notes) ?? .default
     }
 
     /// Sensible defaults for a fresh installation.
     public static let `default` = Config(
-        protectedFolders: [],
-        lockedNotes: true,
-        softDelete: true,
-        undoHistory: 50,
         defaultFormat: nil,
         notes: .default
     )

@@ -108,15 +108,22 @@ struct CommandTests {
         }
 
         #expect(subcommandNames.contains("init"))
-        #expect(subcommandNames.contains("sync"))
-        #expect(subcommandNames.contains("status"))
         #expect(subcommandNames.contains("notes"))
-        #expect(subcommandNames.contains("undo"))
-        #expect(subcommandNames.contains("history"))
-        #expect(subcommandNames.contains("link"))
-        #expect(subcommandNames.contains("tag"))
-        #expect(subcommandNames.contains("tags"))
-        #expect(subcommandNames.contains("links"))
+        #expect(subcommandNames.contains("folders"))
+        #expect(subcommandNames.contains("folder"))
+        #expect(subcommandNames.contains("export"))
+    }
+
+    @Test("FolderCommand has expected subcommands")
+    func folderSubcommands() {
+        let subcommandNames = FolderCommand.configuration.subcommands.map {
+            $0.configuration.commandName ?? ""
+        }
+
+        #expect(subcommandNames.contains("create"))
+        #expect(subcommandNames.contains("rename"))
+        #expect(subcommandNames.contains("move"))
+        #expect(subcommandNames.contains("delete"))
     }
 
     @Test("NotesCommand has expected subcommands")
@@ -155,30 +162,20 @@ struct CommandTests {
     func versionMatch() {
         #expect(RootCommand.configuration.version == NotesCore.version)
     }
-
-    @Test("SyncCommand supports explicit full sync flag")
-    func syncCommandFullFlag() throws {
-        let command = try SyncCommand.parse(["--full"])
-        #expect(command.full)
-    }
 }
 
-@Suite("Command Mutation Sync Tests", .serialized)
-struct CommandMutationSyncTests {
-    private func withOverrides(
-        notes: MockNotesService = MockNotesService(),
-        db: MockDatabaseService = MockDatabaseService(),
-        config: Config = .default,
-        _ body: @escaping @Sendable (MockNotesService, MockDatabaseService) async throws -> Void
+@Suite("Command Write Tests", .serialized)
+struct CommandWriteTests {
+    private func withNotes(
+        _ notes: MockNotesService,
+        _ body: @escaping @Sendable () async throws -> Void
     ) async throws {
         try await containerTestLock.withLock {
             let container = ServiceContainer.shared
-            let safety = SafetyService(configProvider: { config }, db: db, notes: notes)
+            await container.reset()
             await container.override(notes: notes)
-            await container.override(database: db)
-            await container.override(safety: safety)
             do {
-                try await body(notes, db)
+                try await body()
                 await container.reset()
             } catch {
                 await container.reset()
@@ -187,243 +184,160 @@ struct CommandMutationSyncTests {
         }
     }
 
-    @Test("notes create updates the local database")
-    func notesCreateUpdatesDatabase() async throws {
-        try await withOverrides { _, db in
+    @Test("create calls the writer with title, body, and folder")
+    func createCallsWriter() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
             let command = try NotesCreateCommand.parse([
-                "--folder", "Projects/Ideas",
-                "--title", "Fresh Note",
-                "--body", "<p>Hello</p>",
-                "--format", "json",
+                "--folder", "Projects/Ideas", "--title", "Fresh", "--body", "<p>hi</p>", "--format", "json",
             ])
-
-            try await discardStdout {
-                try await command.run()
-            }
-
-            let notes = try await db.fetchAllNotes()
-            #expect(notes.count == 1)
-            #expect(notes[0].title == "Fresh Note")
-            #expect(notes[0].folderPath == "Projects/Ideas")
+            try await discardStdout { try await command.run() }
         }
+        #expect(notes.createNoteCalled)
+        #expect(notes.lastCreatedTitle == "Fresh")
+        #expect(notes.lastCreatedBody == "<p>hi</p>")
+        #expect(notes.lastCreatedFolder == "Projects/Ideas")
     }
 
-    @Test("notes create scopes unqualified folder to selected account")
-    func notesCreateScopesUnqualifiedFolderToSelectedAccount() async throws {
-        let notesService = MockNotesService()
-        notesService.scopedAccountName = "iCloud"
-
-        try await withOverrides(notes: notesService, config: Config(notes: .init(selectedAccount: "iCloud"))) { notes, db in
-            let command = try NotesCreateCommand.parse([
-                "--folder", "Projects/Ideas",
-                "--title", "Scoped Note",
-                "--body", "<p>Hello</p>",
-                "--format", "json",
-            ])
-
-            try await discardStdout {
-                try await command.run()
-            }
-
-            let storedNotes = try await db.fetchAllNotes()
-            #expect(notes.lastCreatedFolder == "iCloud/Projects/Ideas")
-            #expect(storedNotes.count == 1)
-            #expect(storedNotes[0].folderPath == "iCloud/Projects/Ideas")
-        }
-    }
-
-    @Test("notes create preserves qualified folder in selected account")
-    func notesCreatePreservesQualifiedFolderInSelectedAccount() async throws {
-        let notesService = MockNotesService()
-        notesService.scopedAccountName = "iCloud"
-
-        try await withOverrides(notes: notesService, config: Config(notes: .init(selectedAccount: "iCloud"))) { notes, db in
-            let command = try NotesCreateCommand.parse([
-                "--folder", "iCloud/Projects/Ideas",
-                "--title", "Qualified Note",
-                "--body", "<p>Hello</p>",
-                "--format", "json",
-            ])
-
-            try await discardStdout {
-                try await command.run()
-            }
-
-            let storedNotes = try await db.fetchAllNotes()
-            #expect(notes.lastCreatedFolder == "iCloud/Projects/Ideas")
-            #expect(storedNotes.count == 1)
-            #expect(storedNotes[0].folderPath == "iCloud/Projects/Ideas")
-        }
-    }
-
-    @Test("notes create without folder targets scoped account root")
-    func notesCreateWithoutFolderTargetsScopedAccountRoot() async throws {
-        let notesService = MockNotesService()
-        notesService.scopedAccountName = "iCloud"
-
-        try await withOverrides(notes: notesService, config: Config(notes: .init(selectedAccount: "iCloud"))) { notes, db in
-            let command = try NotesCreateCommand.parse([
-                "--title", "Root Note",
-                "--body", "<p>Hello</p>",
-                "--format", "json",
-            ])
-
-            try await discardStdout {
-                try await command.run()
-            }
-
-            let storedNotes = try await db.fetchAllNotes()
-            #expect(notes.lastCreatedFolder == "iCloud")
-            #expect(storedNotes.count == 1)
-            #expect(storedNotes[0].folderPath == "iCloud")
-        }
-    }
-
-    @Test("notes edit refreshes the local database")
-    func notesEditRefreshesDatabase() async throws {
-        let notesService = MockNotesService()
-        notesService.notes = [makeSampleAppleNote(id: "n1", name: "Original", folder: "Notes")]
-        let db = MockDatabaseService()
-        try await db.insertNote(makeSampleNote(id: "n1", title: "Original", bodyPlaintext: "Old"))
-
-        try await withOverrides(notes: notesService, db: db) { _, db in
+    @Test("edit calls the writer with the provided title and body")
+    func editCallsWriter() async throws {
+        let notes = MockNotesService()
+        notes.notes = [makeSampleAppleNote(id: "n1", name: "Old", folder: "Notes")]
+        try await withNotes(notes) {
             let command = try NotesEditCommand.parse([
-                "n1",
-                "--title", "Updated",
-                "--body", "<p>New</p>",
-                "--format", "json",
+                "n1", "--title", "New", "--body", "<p>new</p>", "--format", "json",
             ])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.updateNoteCalled)
+        #expect(notes.lastUpdatedID == "n1")
+        #expect(notes.lastUpdatedTitle == "New")
+        #expect(notes.lastUpdatedBody == "<p>new</p>")
+    }
 
-            try await discardStdout {
-                try await command.run()
+    @Test("move calls the writer with the destination folder")
+    func moveCallsWriter() async throws {
+        let notes = MockNotesService()
+        notes.notes = [makeSampleAppleNote(id: "n1", name: "N", folder: "Notes")]
+        try await withNotes(notes) {
+            let command = try NotesMoveCommand.parse(["n1", "--folder", "Archive", "--format", "json"])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.moveNoteCalled)
+        #expect(notes.lastMovedID == "n1")
+        #expect(notes.lastMovedFolder == "Archive")
+    }
+
+    @Test("delete really deletes (not soft-delete)")
+    func deleteCallsWriter() async throws {
+        let notes = MockNotesService()
+        notes.notes = [makeSampleAppleNote(id: "n1", name: "N", folder: "Notes")]
+        try await withNotes(notes) {
+            let command = try NotesDeleteCommand.parse(["n1", "--format", "json"])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.deleteNoteCalled)
+        #expect(notes.lastDeletedID == "n1")
+    }
+}
+
+@Suite("Folder Command Tests", .serialized)
+struct FolderCommandTests {
+    private func withNotes(
+        _ notes: MockNotesService,
+        _ body: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        try await containerTestLock.withLock {
+            let container = ServiceContainer.shared
+            await container.reset()
+            await container.override(notes: notes)
+            do {
+                try await body()
+                await container.reset()
+            } catch {
+                await container.reset()
+                throw error
             }
-
-            let note = try await db.fetchNote(id: "n1")
-            #expect(note?.title == "Updated")
-            #expect(note?.bodyPlaintext == "Hello")
         }
     }
 
-    @Test("notes move refreshes the local database folder path")
-    func notesMoveRefreshesDatabase() async throws {
-        let notesService = MockNotesService()
-        notesService.notes = [makeSampleAppleNote(id: "n1", name: "Original", folder: "Notes")]
-        let db = MockDatabaseService()
-        try await db.insertNote(makeSampleNote(id: "n1", title: "Original", bodyPlaintext: "Body"))
-
-        try await withOverrides(notes: notesService, db: db) { _, db in
-            let command = try NotesMoveCommand.parse([
-                "n1",
-                "--to", "Projects/Archive",
-                "--format", "json",
-            ])
-
-            try await discardStdout {
-                try await command.run()
-            }
-
-            let note = try await db.fetchNote(id: "n1")
-            #expect(note?.folderPath == "Projects/Archive")
-        }
-    }
-
-    @Test("notes move stores scoped destination in database and history")
-    func notesMoveStoresScopedDestinationInDatabaseAndHistory() async throws {
-        let notesService = MockNotesService()
-        notesService.scopedAccountName = "iCloud"
-        notesService.notes = [
-            makeSampleAppleNote(id: "n1", name: "Original", folder: "iCloud/Notes"),
+    @Test("folders lists folders from the notes service")
+    func foldersListsFolders() async throws {
+        let notes = MockNotesService()
+        notes.folders = [
+            AppleFolderRaw(id: "f1", name: "Projects", path: "Projects", parentPath: nil),
+            AppleFolderRaw(id: "f2", name: "Ideas", path: "Projects/Ideas", parentPath: "Projects"),
         ]
-        let db = MockDatabaseService()
-        try await db.insertNote(
-            makeSampleNote(id: "n1", title: "Original", bodyPlaintext: "Body", folderPath: "iCloud/Notes")
-        )
-
-        try await withOverrides(notes: notesService, db: db, config: Config(notes: .init(selectedAccount: "iCloud"))) { notes, db in
-            let command = try NotesMoveCommand.parse([
-                "n1",
-                "--to", "Projects/Archive",
-                "--format", "json",
-            ])
-
-            try await discardStdout {
+        let output = try await captureStdout {
+            try await withNotes(notes) {
+                let command = try FoldersCommand.parse(["--format", "json"])
                 try await command.run()
             }
-
-            let note = try await db.fetchNote(id: "n1")
-            #expect(notes.lastMovedFolder == "iCloud/Projects/Archive")
-            #expect(note?.folderPath == "iCloud/Projects/Archive")
-
-            let action = try #require(db.actionRecords.last)
-            let afterJSON = try #require(action.afterState)
-            let afterCheckpoint = try ActionLogger.decodeCheckpoint(from: afterJSON)
-            #expect(afterCheckpoint.folderPath == "iCloud/Projects/Archive")
         }
+        #expect(notes.fetchFoldersCalled)
+        #expect(output.contains("Projects"))
+        #expect(output.contains("Ideas"))
     }
 
-    @Test("notes create records action only after database sync succeeds")
-    func notesCreateRecordsActionAfterDatabaseSync() async throws {
-        let notesService = MockNotesService()
-        let db = MockDatabaseService()
-        db.failAllNoteInserts = true
-
-        await #expect(throws: NotesError.self) {
-            try await withOverrides(notes: notesService, db: db) { _, _ in
-                let command = try NotesCreateCommand.parse([
-                    "--folder", "Projects/Ideas",
-                    "--title", "Fresh Note",
-                    "--body", "<p>Hello</p>",
-                    "--format", "json",
-                ])
-
-                try await discardStdout {
-                    try await command.run()
-                }
-            }
+    @Test("folder create calls the writer with name and parent")
+    func folderCreateCallsWriter() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
+            let command = try FolderCreateCommand.parse(["Ideas", "--parent", "Projects", "--format", "json"])
+            try await discardStdout { try await command.run() }
         }
-
-        #expect(db.actionRecords.isEmpty)
-        #expect(notesService.createNoteCalled == true)
+        #expect(notes.createFolderCalled)
+        #expect(notes.lastCreatedFolderName == "Ideas")
+        #expect(notes.lastCreatedFolderParent == "Projects")
     }
 
-    @Test("mutation refresh inserts fallback note when local row is missing")
-    func noteMutationSyncInsertsFallbackWhenLocalRowMissing() async throws {
-        let notesService = MockNotesService()
-        notesService.fetchNoteSequence = [nil]
-        let db = MockDatabaseService()
-        db.strictMissingNoteUpdates = true
-        let fallback = makeSampleNote(
-            id: "n1",
-            title: "Recovered",
-            bodyPlaintext: "Recovered",
-            folderPath: "Projects/Archive"
-        )
+    @Test("folder rename calls the writer with path and new name")
+    func folderRenameCallsWriter() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
+            let command = try FolderRenameCommand.parse(["Projects", "Work", "--format", "json"])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.renameFolderCalled)
+        #expect(notes.lastRenamedFolderPath == "Projects")
+        #expect(notes.lastRenamedFolderNewName == "Work")
+    }
 
-        let refreshedNote = try await NoteMutationSync.refreshExistingNote(
-            id: "n1",
-            fallback: fallback,
-            notes: notesService,
-            db: db
-        )
+    @Test("folder move calls the writer with path and parent")
+    func folderMoveCallsWriter() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
+            let command = try FolderMoveCommand.parse(["Projects/Ideas", "--parent", "Archive", "--format", "json"])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.moveFolderCalled)
+        #expect(notes.lastMovedFolderPath == "Projects/Ideas")
+        #expect(notes.lastMovedFolderParent == "Archive")
+    }
 
-        #expect(refreshedNote.title == "Recovered")
-        #expect(refreshedNote.folderPath == "Projects/Archive")
-        let persistedNote = try await db.fetchNote(id: "n1")
-        #expect(persistedNote?.folderPath == "Projects/Archive")
+    @Test("folder delete calls the writer with path")
+    func folderDeleteCallsWriter() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
+            let command = try FolderDeleteCommand.parse(["Projects/Ideas", "--format", "json"])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.deleteFolderCalled)
+        #expect(notes.lastDeletedFolderPath == "Projects/Ideas")
     }
 }
 
 @Suite("Command Read Tests", .serialized)
 struct CommandReadTests {
     private func withOverrides(
-        db: MockDatabaseService,
+        notes: MockNotesService,
         config: InitCommandConfigService,
         _ body: @escaping @Sendable () async throws -> Void
     ) async throws {
         try await containerTestLock.withLock {
             let container = ServiceContainer.shared
             await container.reset()
-            await container.override(database: db)
+            await container.override(notes: notes)
             await container.override(config: config)
             do {
                 try await body()
@@ -437,19 +351,22 @@ struct CommandReadTests {
 
     @Test("notes list matches unqualified folder filter against scoped paths")
     func notesListMatchesUnqualifiedFolderFilter() async throws {
-        let db = MockDatabaseService()
-        try await db.insertNote(makeSampleNote(id: "n1", title: "Scoped", bodyPlaintext: "One", folderPath: "iCloud/Projects/Ideas"))
-        try await db.insertNote(makeSampleNote(id: "n2", title: "Other", bodyPlaintext: "Two", folderPath: "iCloud/Archive"))
+        let notes = MockNotesService()
+        notes.notes = [
+            makeSampleAppleNote(id: "n1", name: "Scoped", bodyPlaintext: "One", folder: "iCloud/Projects/Ideas"),
+            makeSampleAppleNote(id: "n2", name: "Other", bodyPlaintext: "Two", folder: "iCloud/Archive")
+        ]
 
         let config = try InitCommandConfigService()
         config.loadedConfig = Config(notes: .init(selectedAccount: "iCloud"))
 
-        try await withOverrides(db: db, config: config) {
+        try await withOverrides(notes: notes, config: config) {
             let command = try NotesListCommand.parse(["--folder", "Projects/Ideas", "--format", "json"])
             let output = try await captureStdout {
                 try await command.run()
             }
 
+            #expect(notes.fetchAllNotesCalled)
             #expect(output.contains("Scoped"))
             #expect(!output.contains("Other"))
         }
@@ -457,19 +374,22 @@ struct CommandReadTests {
 
     @Test("notes search matches unqualified folder filter against scoped paths")
     func notesSearchMatchesUnqualifiedFolderFilter() async throws {
-        let db = MockDatabaseService()
-        try await db.insertNote(makeSampleNote(id: "n1", title: "Scoped Search", bodyPlaintext: "Hello", folderPath: "iCloud/Projects/Ideas"))
-        try await db.insertNote(makeSampleNote(id: "n2", title: "Wrong Folder", bodyPlaintext: "Hello", folderPath: "iCloud/Archive"))
+        let notes = MockNotesService()
+        notes.notes = [
+            makeSampleAppleNote(id: "n1", name: "Scoped Search", bodyPlaintext: "Hello", folder: "iCloud/Projects/Ideas"),
+            makeSampleAppleNote(id: "n2", name: "Wrong Folder", bodyPlaintext: "Hello", folder: "iCloud/Archive")
+        ]
 
         let config = try InitCommandConfigService()
         config.loadedConfig = Config(notes: .init(selectedAccount: "iCloud"))
 
-        try await withOverrides(db: db, config: config) {
+        try await withOverrides(notes: notes, config: config) {
             let command = try NotesSearchCommand.parse(["Hello", "--folder", "Projects/Ideas", "--format", "json"])
             let output = try await captureStdout {
                 try await command.run()
             }
 
+            #expect(notes.searchNotesCalled)
             #expect(output.contains("Scoped Search"))
             #expect(!output.contains("Wrong Folder"))
         }
@@ -554,37 +474,12 @@ struct InitCommandTests {
             #expect(directNotes.scope.selectedAccount == "iCloud")
         }
     }
-
-    @Test("init --from persists selected Notes account before applying blueprint")
-    func initFromBlueprintPersistsSelectedNotesAccount() async throws {
-        let notes = MockNotesService()
-        notes.accountNames = ["Gmail", "iCloud"]
-        notes.defaultAccountName = "iCloud"
-        let config = try InitCommandConfigService()
-        let blueprintPath = config.rootDirectory.appendingPathComponent("blueprint.json")
-        try "{\"folders\":[{\"name\":\"Projects\"}],\"settings\":{}}".write(
-            to: blueprintPath,
-            atomically: true,
-            encoding: .utf8
-        )
-
-        try await withOverrides(notes: notes, config: config) {
-            let command = try InitCommand.parse(["--from", blueprintPath.path, "--format", "json"])
-            try await discardStdout {
-                try await command.run()
-            }
-        }
-
-        #expect(config.savedConfig?.notes.selectedAccount == "iCloud")
-        #expect(config.appliedBlueprints.count == 1)
-    }
 }
 
 final class InitCommandConfigService: ConfigServiceProtocol, @unchecked Sendable {
     let rootDirectory: URL
     var loadedConfig: Config = .default
     var savedConfig: Config?
-    var appliedBlueprints: [Blueprint] = []
 
     init() throws {
         rootDirectory = FileManager.default.temporaryDirectory
@@ -605,21 +500,7 @@ final class InitCommandConfigService: ConfigServiceProtocol, @unchecked Sendable
         savedConfig = config
     }
 
-    func loadBlueprint(from path: String) async throws -> Blueprint {
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        return try JSONDecoder().decode(Blueprint.self, from: data)
-    }
-
-    func applyBlueprint(_ blueprint: Blueprint, dryRun: Bool) async throws -> [String] {
-        appliedBlueprints.append(blueprint)
-        return []
-    }
-
     func notesDirectory() throws -> URL {
         rootDirectory
-    }
-
-    func databasePath() throws -> URL {
-        rootDirectory.appendingPathComponent("notes.db")
     }
 }

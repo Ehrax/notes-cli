@@ -223,19 +223,6 @@ private struct MarkdownMapper {
         result = result.replacingOccurrences(
             of: #"(?m)([^\n])\n(#{1,3} )"#, with: "$1\n\n$2", options: .regularExpression
         )
-        // Strip Apple Notes hashtag lines
-        result = result.replacingOccurrences(
-            of: #"(?m)^\s*(#\w+\s*)+$"#, with: "", options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"(?m)\s+#[A-Z]\w+(\s+#[A-Z]\w+)*\s*$"#, with: "", options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"(?m)^##\s+(#\w+\s*)+$"#, with: "", options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"\)#[A-Z]\w+"#, with: ")", options: .regularExpression
-        )
         // Strip calculateresult attachments + preceding math expression
         result = result.replacingOccurrences(
             of: #"(?m)^[0-9,.\s+\-*/]+\n!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,

@@ -15,19 +15,18 @@ struct NotesListCommand: AsyncParsableCommand {
     func run() async throws {
         global.configureLogging()
         let container = ServiceContainer.shared
-        let db = try await container.database
+        let notesSvc = try await container.notes
         let configSvc = try await container.config
         let config = try await configSvc.loadConfig()
 
-        let notes: [Note]
+        var raw = try await notesSvc.fetchAllNotes()
         if let folder {
-            notes = try await db.fetchAllNotes().filter { note in
+            raw = raw.filter { note in
                 config.notes.matchesFolderPath(note.folderPath, filter: folder)
             }
-        } else {
-            notes = try await db.fetchAllNotes()
         }
 
+        let notes = raw.map { Note(from: $0) }
         try OutputFormatter.printNotes(notes, format: global.resolvedFormat)
     }
 }

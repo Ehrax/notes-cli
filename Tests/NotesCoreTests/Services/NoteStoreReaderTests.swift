@@ -13,97 +13,93 @@ struct NoteStoreReaderTests {
         return FileManager.default.isReadableFile(atPath: path)
     }
 
+    /// A path that does not point at a readable SQLite database.
+    private func bogusDBPath() -> String {
+        "/tmp/notes-cli-test-nonexistent-\(UUID().uuidString)/NoteStore.sqlite"
+    }
+
     // MARK: - isAvailable
 
     @Test("isAvailable returns false when NoteStore.sqlite does not exist")
     func isAvailableReturnsFalseForMissingDatabase() throws {
-        // When Full Disk Access is granted, refresh() copies the real DB into the temp cache,
-        // so fetch calls succeed instead of throwing. Skip in that case.
+        // isAvailable() checks the live source path; only meaningful without Full Disk Access.
         guard !realDBAccessible else { return }
 
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-notestorereader-test")
-        defer { removeTempDirectory(tempDir) }
+        let reader = NoteStoreReader()
+        #expect(reader.isAvailable() == false)
+    }
 
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+    // MARK: - Error path (unreadable live DB)
 
+    @Test("fetchAccountNames throws NotesError when the DB path is unreadable")
+    func fetchAccountNamesThrowsWhenUnreadable() throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         #expect(throws: (any Error).self) {
             try reader.fetchAccountNames()
         }
     }
 
-    @Test("refresh throws when source NoteStore.sqlite is not found")
-    func refreshThrowsWhenSourceMissing() {
-        // NoteStoreReader looks for ~/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite
-        // In a test environment, this may or may not exist.
-        // We test the behaviour when the cache dir itself is non-existent.
-        let reader = NoteStoreReader(cacheDir: "/tmp/notes-cli-test-nonexistent-\(UUID().uuidString)")
-        // On a machine without Apple Notes OR full disk access, refresh() will throw.
-        // This test verifies the reader doesn't crash — it either succeeds or throws a NotesError.
-        do {
-            try reader.refresh()
-            // If refresh succeeds, the source DB exists and we have disk access — that's fine too
-        } catch let error as NotesError {
-            // Expected: either "not found" or "cannot access" error
-            switch error {
-            case .commandFailed:
-                break  // Expected
-            default:
-                Issue.record("Unexpected NotesError type: \(error)")
-            }
-        } catch {
-            Issue.record("Unexpected non-NotesError: \(error)")
-        }
-    }
-
-    @Test("fetchAccountNames throws NotesError when cache DB is missing")
-    func fetchAccountNamesThrowsWhenCacheMissing() throws {
-        guard !realDBAccessible else { return }
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-notestorereader-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
-
-        #expect(throws: (any Error).self) {
-            try reader.fetchAccountNames()
-        }
-    }
-
-    @Test("fetchFolders throws NotesError when cache DB is missing")
-    func fetchFoldersThrowsWhenCacheMissing() throws {
-        guard !realDBAccessible else { return }
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-notestorereader-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
-
+    @Test("fetchFolders throws NotesError when the DB path is unreadable")
+    func fetchFoldersThrowsWhenUnreadable() throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         #expect(throws: (any Error).self) {
             try reader.fetchFolders()
         }
     }
 
-    @Test("fetchAllNotes throws NotesError when cache DB is missing")
-    func fetchAllNotesThrowsWhenCacheMissing() throws {
-        guard !realDBAccessible else { return }
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-notestorereader-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
-
+    @Test("fetchAllNotes throws NotesError when the DB path is unreadable")
+    func fetchAllNotesThrowsWhenUnreadable() throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         #expect(throws: (any Error).self) {
             try reader.fetchAllNotes()
         }
     }
 
-    @Test("fetchAttachments throws NotesError when cache DB is missing")
-    func fetchAttachmentsThrowsWhenCacheMissing() throws {
-        guard !realDBAccessible else { return }
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-notestorereader-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
-
+    @Test("fetchAttachments throws NotesError when the DB path is unreadable")
+    func fetchAttachmentsThrowsWhenUnreadable() throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         #expect(throws: (any Error).self) {
             try reader.fetchAttachments(noteID: "test-note-id")
         }
+    }
+
+    // MARK: - Live read (no copy)
+
+    @Test("live read works and creates no cache directory")
+    func liveReadWorksAndCreatesNoCopy() throws {
+        guard realDBAccessible else { return }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cacheDir = "\(home)/.notes-cli/cache"
+        // Ensure we start clean so we can prove the read created nothing.
+        try? FileManager.default.removeItem(atPath: cacheDir)
+
+        let reader = NoteStoreReader()
+        let folders = try reader.fetchFolders()
+        #expect(!folders.isEmpty)
+
+        // G2 / G1: a live read must not copy the DB or create a cache dir.
+        #expect(FileManager.default.fileExists(atPath: cacheDir) == false)
+    }
+
+    // MARK: - Note identifiers (write-addressable)
+
+    @Test("note ids are x-coredata scripting ids and round-trip via fetchNote")
+    func noteIDsAreScriptingIdentifiers() throws {
+        guard realDBAccessible else { return }
+
+        let reader = NoteStoreReader()
+        let notes = try reader.fetchAllNotes()
+        guard let first = notes.first else { return }
+
+        // The id must be the scripting identifier the writer uses to find a note,
+        // not the raw ZIDENTIFIER — otherwise "list then edit" cannot resolve it.
+        #expect(first.id.hasPrefix("x-coredata://"))
+        #expect(first.id.contains("/ICNote/p"))
+
+        // Read-id == write-id: a listed id must re-fetch the same note.
+        let again = try reader.fetchNote(id: first.id)
+        #expect(again?.id == first.id)
+        #expect(again?.name == first.name)
     }
 }

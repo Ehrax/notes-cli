@@ -10,15 +10,9 @@ struct RootCommand: AsyncParsableCommand {
         version: "0.1.0",
         subcommands: [
             InitCommand.self,
-            SyncCommand.self,
-            StatusCommand.self,
             NotesCommand.self,
-            UndoCommand.self,
-            HistoryCommand.self,
-            LinkCommand.self,
-            TagCommand.self,
-            TagsListCommand.self,
-            LinksCommand.self,
+            FoldersCommand.self,
+            FolderCommand.self,
             ExportCommand.self,
         ]
     )

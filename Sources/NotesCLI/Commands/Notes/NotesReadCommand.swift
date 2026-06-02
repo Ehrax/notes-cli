@@ -15,12 +15,13 @@ struct NotesReadCommand: AsyncParsableCommand {
     func run() async throws {
         global.configureLogging()
         let container = ServiceContainer.shared
-        let db = try await container.database
+        let notesSvc = try await container.notes
 
-        guard let note = try await db.fetchNote(id: id) else {
+        guard let raw = try await notesSvc.fetchNote(id: id) else {
             throw NotesError.noteNotFound(id: id)
         }
 
+        let note = Note(from: raw)
         let bodyText = await Self.convertedBody(for: note, container: container)
         try OutputFormatter.printNote(note, bodyText: bodyText, format: global.resolvedFormat)
     }

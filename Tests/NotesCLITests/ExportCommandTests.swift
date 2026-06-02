@@ -9,27 +9,23 @@ struct ExportCommandTests {
         let command = try ExportCommand.parse([])
         #expect(command.type == .md)
         #expect(command.output == "./notes-cli-export/")
-        #expect(command.live == false)
-        #expect(command.account == nil)
         #expect(command.folder == nil)
-        #expect(command.tag == nil)
     }
 
     @Test func parsesAllOptions() throws {
         let command = try ExportCommand.parse([
-            "--type", "md",
+            "--type", "json",
             "--output", "/tmp/export",
-            "--live",
-            "--account", "iCloud",
             "--folder", "notes-cli/projects",
-            "--tag", "active",
         ])
-        #expect(command.type == .md)
+        #expect(command.type == .json)
         #expect(command.output == "/tmp/export")
-        #expect(command.live == true)
-        #expect(command.account == "iCloud")
         #expect(command.folder == "notes-cli/projects")
-        #expect(command.tag == "active")
+    }
+
+    @Test func parsesJSONFormat() throws {
+        let command = try ExportCommand.parse(["--type", "json"])
+        #expect(command.type == .json)
     }
 
     @Test func rejectsInvalidFormat() {
@@ -41,12 +37,6 @@ struct ExportCommandTests {
     @Test func rejectsHTMLFormat() {
         #expect(throws: (any Error).self) {
             try ExportCommand.parse(["--type", "html"])
-        }
-    }
-
-    @Test func rejectsJSONFormat() {
-        #expect(throws: (any Error).self) {
-            try ExportCommand.parse(["--type", "json"])
         }
     }
 }

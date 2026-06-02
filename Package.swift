@@ -27,8 +27,17 @@ let package = Package(
             ]
         ),
         .target(
+            // ObjC writer over the generated Notes ScriptingBridge interface (ADR 0002).
+            name: "NotesCoreObjC",
+            linkerSettings: [
+                .linkedFramework("ScriptingBridge"),
+                .linkedFramework("AppKit"),
+            ]
+        ),
+        .target(
             name: "NotesCore",
             dependencies: [
+                "NotesCoreObjC",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],

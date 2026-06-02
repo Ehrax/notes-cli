@@ -5,7 +5,7 @@ import Foundation
 struct NotesEditCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "edit",
-        abstract: "Edit a note by ID (opens $EDITOR or uses --title/--body flags)"
+        abstract: "Edit a note by ID (opens $EDITOR, or uses --title/--body flags)"
     )
 
     @OptionGroup var global: GlobalOptions
@@ -22,80 +22,26 @@ struct NotesEditCommand: AsyncParsableCommand {
     func run() async throws {
         global.configureLogging()
         let container = ServiceContainer.shared
-        let safety = try await container.safety
         let notesSvc = try await container.notes
-        let db = try await container.database
 
-        // Fetch current note from DB for checkpoints
-        guard let note = try await db.fetchNote(id: id) else {
-            throw NotesError.noteNotFound(id: id)
-        }
-
-        let sourceFolderPath = notesSvc.resolvedFolderPath(note.folderPath)
-
-        // Safety checks
-        try await safety.guardWrite(toFolder: sourceFolderPath)
-        try await safety.guardLocked(noteID: id, isLocked: note.isLocked)
-
-        let beforeCheckpoint = Checkpoint(
-            noteID: note.id,
-            title: note.title,
-            bodyProtobuf: note.bodyProtobuf,
-            bodyPlaintext: note.bodyPlaintext,
-            folderPath: sourceFolderPath
-        )
-
-        // Convert protobuf to markdown for editing, falling back to plaintext
-        let currentBody = await Self.convertedBody(for: note, container: container)
-
-        let newTitle: String
-        let newBody: String
+        let newTitle: String?
+        let newBody: String?
 
         if title != nil || body != nil {
-            // Non-interactive: use provided flags
-            newTitle = title ?? note.title
-            newBody = body ?? currentBody
+            // Non-interactive: apply the provided flags (nil leaves that field unchanged).
+            newTitle = title
+            newBody = body
         } else {
-            // Interactive: open $EDITOR
-            let edited = try openEditor(content: currentBody)
-            newTitle = note.title
-            newBody = edited
+            // Interactive: open $EDITOR seeded with the note's current markdown body.
+            guard let raw = try await notesSvc.fetchNote(id: id) else {
+                throw NotesError.noteNotFound(id: id)
+            }
+            let current = await Self.convertedBody(for: Note(from: raw), container: container)
+            newTitle = nil
+            newBody = try openEditor(content: current)
         }
 
         try await notesSvc.updateNote(id: id, title: newTitle, bodyHTML: newBody)
-        let storedNote = try await NoteMutationSync.refreshExistingNote(
-            id: id,
-            fallback: Note(
-                id: note.id,
-                title: newTitle,
-                bodyProtobuf: Data(),
-                bodyPlaintext: "",
-                folderPath: sourceFolderPath,
-                creationDate: note.creationDate,
-                modificationDate: note.modificationDate,
-                isLocked: note.isLocked,
-                syncedAt: Date()
-            ),
-            notes: notesSvc,
-            db: db
-        )
-
-        let afterCheckpoint = Checkpoint(
-            noteID: storedNote.id,
-            title: storedNote.title,
-            bodyProtobuf: storedNote.bodyProtobuf,
-            bodyPlaintext: storedNote.bodyPlaintext,
-            folderPath: storedNote.folderPath
-        )
-
-        try await safety.recordAction(
-            type: .edit,
-            noteID: id,
-            before: beforeCheckpoint,
-            after: afterCheckpoint,
-            metadata: nil
-        )
-
         try OutputFormatter.printMessage("Updated note \(id)", format: global.resolvedFormat)
     }
 

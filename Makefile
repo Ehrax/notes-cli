@@ -9,13 +9,16 @@ release:
 
 # Test
 test:
-	swift test
+	# CLI test suites redirect the process-global stdout fd and share the
+	# ServiceContainer singleton, so they are not safe under the parallel
+	# test scheduler — run serially to avoid a MainActor-starvation deadlock.
+	swift test --no-parallel
 
 test-core:
 	swift test --filter NotesCoreTests
 
 test-cli:
-	swift test --filter NotesCLITests
+	swift test --filter NotesCLITests --no-parallel
 
 test-integration:
 	swift test --filter NotesIntegrationTests
@@ -40,10 +43,6 @@ setup:
 clean:
 	swift package clean
 	rm -f Sources/NotesCore/Protobuf/notestore.pb.swift
-	rm -f ~/.notes-cli/notes.db
-
-clean-cache:
-	rm -f ~/.notes-cli/cache/NoteStore.sqlite ~/.notes-cli/cache/NoteStore.sqlite-shm ~/.notes-cli/cache/NoteStore.sqlite-wal
 
 lint:
 	swift build 2>&1 | grep -E "warning:|error:" || echo "No lint issues"

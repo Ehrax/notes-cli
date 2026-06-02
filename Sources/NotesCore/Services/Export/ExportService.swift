@@ -1,15 +1,15 @@
 import Foundation
 
-/// Exports notes from the database to files on disk.
+/// Exports notes from the live Apple Notes database to files on disk.
 public final class ExportService: Sendable {
-    private let db: any DatabaseServiceProtocol
+    private let notes: any NotesServiceProtocol
     private let resolver: any AttachmentResolver
 
     private static let appleNotesRoot =
         "Library/Group Containers/group.com.apple.notes"
 
-    public init(db: any DatabaseServiceProtocol, resolver: any AttachmentResolver) {
-        self.db = db
+    public init(notes: any NotesServiceProtocol, resolver: any AttachmentResolver) {
+        self.notes = notes
         self.resolver = resolver
     }
 
@@ -18,14 +18,11 @@ public final class ExportService: Sendable {
     public func export(
         format: ExportFormat,
         outputDir: String,
-        account: String? = nil,
         folder: String? = nil,
-        tag: String? = nil,
         ignoreFolders: [String] = []
     ) async throws -> ExportResult {
         let notes = try await fetchFiltered(
-            account: account, folder: folder, tag: tag,
-            ignoreFolders: ignoreFolders
+            folder: folder, ignoreFolders: ignoreFolders
         )
 
         let outputURL = URL(fileURLWithPath: outputDir, isDirectory: true)
@@ -131,21 +128,10 @@ public final class ExportService: Sendable {
     // MARK: - Private helpers
 
     private func fetchFiltered(
-        account: String?,
         folder: String?,
-        tag: String?,
         ignoreFolders: [String] = []
     ) async throws -> [Note] {
-        var notes = try await db.fetchAllNotes()
-
-        if let account {
-            notes = notes.filter { note in
-                let first = note.folderPath
-                    .split(separator: "/", omittingEmptySubsequences: true)
-                    .first.map(String.init)
-                return first == account
-            }
-        }
+        var notes = try await self.notes.fetchAllNotes().map { Note(from: $0) }
 
         if let folder {
             notes = notes.filter { $0.folderPath.contains(folder) }
@@ -157,23 +143,7 @@ public final class ExportService: Sendable {
             }
         }
 
-        if let tagName = tag {
-            notes = try await filterByTag(notes: notes, tagName: tagName)
-        }
-
         return notes
-    }
-
-    private func filterByTag(
-        notes: [Note], tagName: String
-    ) async throws -> [Note] {
-        let matchedTag = try await db.fetchTag(name: tagName)
-        guard let matchedTag, let tagID = matchedTag.id else {
-            return []
-        }
-        let taggedNotes = try await db.fetchNotes(forTagID: tagID)
-        let taggedIDs = Set(taggedNotes.map(\.id))
-        return notes.filter { taggedIDs.contains($0.id) }
     }
 
     private func prepareFileURL(
@@ -232,7 +202,6 @@ public final class ExportService: Sendable {
     private func renderContent(
         note: Note, format: ExportFormat, outputURL: URL
     ) async throws -> String {
-        let tags = try await db.fetchTags(forNoteID: note.id)
         let folderURL = outputURL.appendingPathComponent(note.folderPath, isDirectory: true)
 
         // Convert protobuf → markdown, falling back to plaintext on failure
@@ -255,9 +224,31 @@ public final class ExportService: Sendable {
         let bodyWithAttachments = try await resolveAttachments(
             noteID: note.id, body: body, folderURL: folderURL
         )
-        return Self.markdownWithFrontmatter(
-            note: note, tags: tags.map(\.name), body: bodyWithAttachments
+
+        switch format {
+        case .json:
+            return try Self.jsonContent(note: note, body: bodyWithAttachments)
+        case .md:
+            return Self.markdownWithFrontmatter(
+                note: note, tags: [], body: bodyWithAttachments
+            )
+        }
+    }
+
+    static func jsonContent(note: Note, body: String) throws -> String {
+        let payload = ExportedNote(
+            id: note.id,
+            title: note.title,
+            body: body,
+            folderPath: note.folderPath,
+            creationDate: note.creationDate,
+            modificationDate: note.modificationDate
         )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(payload)
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - Attachment resolution
@@ -267,7 +258,7 @@ public final class ExportService: Sendable {
     private func resolveAttachments(
         noteID: String, body: String, folderURL: URL
     ) async throws -> String {
-        let attachments = try await db.fetchAttachments(forNoteID: noteID)
+        let attachments = try await notes.fetchAttachments(noteID: noteID)
         guard !attachments.isEmpty else { return body }
 
         let assetsURL = folderURL.appendingPathComponent("assets", isDirectory: true)
@@ -314,4 +305,14 @@ public final class ExportService: Sendable {
     private static func progress(_ message: String) {
         fputs(message + "\n", stderr)
     }
+}
+
+/// JSON export shape for a single note (stable public contract).
+private struct ExportedNote: Encodable {
+    let id: String
+    let title: String
+    let body: String
+    let folderPath: String
+    let creationDate: Date
+    let modificationDate: Date
 }

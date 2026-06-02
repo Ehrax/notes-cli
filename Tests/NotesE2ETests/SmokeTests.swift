@@ -44,24 +44,6 @@ struct SmokeTests {
         }
     }
 
-    // MARK: - notes-cli status --format json
-
-    @Test("notes-cli status --format json exits 0 and outputs valid JSON")
-    func statusJsonExitsZero() throws {
-        try withIsolatedNotesCLIHome { home in
-            let environment = isolatedEnvironment(home: home)
-            _ = try runNotesCLI(["init", "--yes", "--format", "json"], environment: environment)
-
-            let result = try runNotesCLI(["status", "--format", "json"], environment: environment)
-            #expect(result.exitCode == 0, "stderr: \(result.stderr)")
-            #expect(result.stderr.isEmpty)
-
-            let data = Data(result.stdout.utf8)
-            let json = try? JSONSerialization.jsonObject(with: data)
-            #expect(json != nil)
-        }
-    }
-
     // MARK: - notes-cli notes list --format json
 
     @Test("notes-cli notes list --format json exits 0 or 2")
@@ -75,52 +57,11 @@ struct SmokeTests {
         }
     }
 
-    // MARK: - notes-cli history --format json
-
-    @Test("notes-cli history --format json exits 0")
-    func historyJsonExitsZero() throws {
-        try withIsolatedNotesCLIHome { home in
-            let environment = isolatedEnvironment(home: home)
-            _ = try runNotesCLI(["init", "--yes", "--format", "json"], environment: environment)
-
-            let result = try runNotesCLI(["history", "--format", "json"], environment: environment)
-            #expect(result.exitCode == 0, "stderr: \(result.stderr)")
-        }
-    }
-
     // MARK: - notes-cli nonexistent
 
     @Test("notes-cli nonexistent exits non-zero")
     func nonexistentCommandExitsNonZero() throws {
         let result = try runNotesCLI(["nonexistent"])
         #expect(result.exitCode != 0)
-    }
-
-    // MARK: - notes-cli --verbose status --format json
-
-    @Test("notes-cli --verbose status --format json exits 0")
-    func verboseStatusExitsZero() throws {
-        try withIsolatedNotesCLIHome { home in
-            let environment = isolatedEnvironment(home: home)
-            _ = try runNotesCLI(["init", "--yes", "--format", "json"], environment: environment)
-
-            let result = try runNotesCLI(["status", "--verbose", "--format", "json"], environment: environment)
-            #expect(result.exitCode == 0, "stderr: \(result.stderr)")
-            #expect(result.stderr.contains("["))
-        }
-    }
-
-    @Test("notes-cli status --format markdown emits markdown")
-    func statusMarkdownEmitsMarkdown() throws {
-        try withIsolatedNotesCLIHome { home in
-            let environment = isolatedEnvironment(home: home)
-            _ = try runNotesCLI(["init", "--yes", "--format", "json"], environment: environment)
-
-            let result = try runNotesCLI(["status", "--format", "markdown"], environment: environment)
-            #expect(result.exitCode == 0, "stderr: \(result.stderr)")
-            #expect(result.stdout.contains("# Output"))
-            #expect(result.stdout.contains("**noteCount:**"))
-            #expect(!result.stdout.contains("{\"folderCount\""))
-        }
     }
 }

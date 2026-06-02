@@ -66,6 +66,6 @@ public struct Note: Codable, Sendable, Equatable {
     }
 }
 
-extension Note: FetchableRecord, PersistableRecord {
+extension Note: FetchableRecord {
     public static let databaseTableName = "note"
 }

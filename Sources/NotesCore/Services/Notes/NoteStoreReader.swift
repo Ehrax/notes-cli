@@ -3,14 +3,13 @@ import GRDB
 
 // MARK: - NoteStoreReader
 
-/// Reads Apple Notes data directly from NoteStore.sqlite.
+/// Reads the live NoteStore.sqlite read-only, no copy.
 ///
-/// Copies the database to ~/.notes-cli/cache/ for safe read-only access, then queries
-/// accounts, folders, notes, and attachments. Note bodies are decoded from gzipped
-/// protobuf via ProtobufToMarkdown.
+/// Opens Apple's `NoteStore.sqlite` directly with a read-only connection (no file copy,
+/// cache, or mirror) and queries accounts, folders, notes, and attachments. Note bodies
+/// are decoded from gzipped protobuf via ProtobufToMarkdown.
 ///
-/// This is the fast read path (SQLite + protobuf), replacing the AppleScript read path.
-/// Write operations remain in AppleScriptWriter.
+/// This is the fast read path (SQLite + protobuf). Writes go through ScriptingBridge.
 public final class NoteStoreReader: Sendable {
 
     // MARK: - Constants
@@ -18,89 +17,19 @@ public final class NoteStoreReader: Sendable {
     private static let noteStoreRelativePath =
         "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
 
-    private static let fileSuffixes = ["", "-shm", "-wal"]
-
     // MARK: - Properties
 
-    private let cacheDir: String
+    /// Optional override for the database path (test seam for the error path).
+    /// When nil, the live `sourceDBPath()` is opened.
+    private let databasePath: String?
 
     // MARK: - Init
 
-    public init(cacheDir: String) {
-        self.cacheDir = cacheDir
+    public init(databasePath: String? = nil) {
+        self.databasePath = databasePath
     }
 
     // MARK: - Public API
-
-    /// Copy NoteStore.sqlite (+ -shm, -wal) to the cache directory and verify it opens.
-    ///
-    /// Must be called before any fetch methods. Safe to call multiple times (re-copies on each call).
-    public func refresh() throws {
-        let source = sourceDBPath()
-        let dest = cachedDBPath()
-
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: cacheDir) {
-            do {
-                try fm.createDirectory(
-                    at: URL(fileURLWithPath: cacheDir),
-                    withIntermediateDirectories: true,
-                    attributes: nil
-                )
-            } catch {
-                throw NotesError.commandFailed(
-                    message: "Cannot create cache directory: \(error.localizedDescription)"
-                )
-            }
-        }
-
-        for suffix in Self.fileSuffixes {
-            let srcPath = source + suffix
-            let dstPath = dest + suffix
-            guard fm.fileExists(atPath: srcPath) else {
-                if suffix.isEmpty {
-                    throw NotesError.commandFailed(
-                        message: "Apple Notes database not found at \(srcPath)."
-                    )
-                }
-                // -shm / -wal may not exist when WAL is checkpointed — skip silently
-                continue
-            }
-            do {
-                if fm.fileExists(atPath: dstPath) {
-                    try fm.removeItem(atPath: dstPath)
-                }
-                try fm.copyItem(atPath: srcPath, toPath: dstPath)
-            } catch let error as NSError {
-                if error.domain == NSPOSIXErrorDomain && (error.code == EPERM || error.code == EACCES) {
-                    throw NotesError.commandFailed(
-                        message: """
-                        Cannot access Apple Notes database — permission denied.
-
-                        notes-cli reads Apple Notes directly via SQLite (no AppleScript).
-                        This requires Full Disk Access for your terminal app.
-
-                        To fix, add one of these to Full Disk Access:
-                          • Your terminal app (Terminal, iTerm, Ghostty, etc.), OR
-                          • The notes-cli binary itself (/usr/local/bin/notes-cli)
-
-                        Steps:
-                          1. Open System Settings → Privacy & Security → Full Disk Access
-                          2. Click + and add the app/binary
-                          3. Restart your terminal (if you added the terminal app)
-                          4. Run `notes-cli sync` again
-
-                        Or open the settings pane directly:
-                          open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-                        """
-                    )
-                }
-                throw NotesError.commandFailed(
-                    message: "Failed to copy NoteStore.sqlite: \(error.localizedDescription)"
-                )
-            }
-        }
-    }
 
     /// Returns true if the source NoteStore.sqlite exists and appears readable.
     public func isAvailable() -> Bool {
@@ -148,6 +77,7 @@ public final class NoteStoreReader: Sendable {
                   let folderEnt = entityTypes["ICFolder"],
                   let accountEnt = entityTypes["ICAccount"] else { return [] }
 
+            let storeUUID = fetchStoreUUID(conn)
             let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
             let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
             let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
@@ -161,7 +91,7 @@ public final class NoteStoreReader: Sendable {
                       let folderPK = row.folderPK else { return nil }
                 let folderInfo = folderIndex[folderPK]
                 return AppleNoteMetadata(
-                    id: identifier,
+                    id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: identifier),
                     name: title,
                     folderName: folderInfo?.name ?? "",
                     folderPath: folderInfo?.path ?? "",
@@ -195,22 +125,27 @@ public final class NoteStoreReader: Sendable {
                   let folderEnt = entityTypes["ICFolder"],
                   let accountEnt = entityTypes["ICAccount"] else { return nil }
 
+            let storeUUID = fetchStoreUUID(conn)
             let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
             let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
             let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
             let byPK = Dictionary(uniqueKeysWithValues: rawFolders.map { ($0.pk, $0) })
             let validFolderPKs = Set(rawFolders.map { $0.pk })
-            // Filter by identifier in SQL to avoid loading all notes
-            let rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs, identifier: id)
+            // Resolve by Z_PK parsed from the x-coredata id; fall back to ZIDENTIFIER.
+            let rows: [NoteRow]
+            if let pk = notePK(fromScriptingID: id) {
+                rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs, pk: pk)
+            } else {
+                rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs, identifier: id)
+            }
 
             guard let row = rows.first,
-                  let identifier = row.identifier,
                   let title = row.title,
                   let folderPK = row.folderPK else { return nil }
 
             return try buildAppleNoteRaw(
                 row: row,
-                identifier: identifier,
+                id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: row.identifier ?? id),
                 title: title,
                 folderPK: folderPK,
                 folderIndex: folderIndex,
@@ -233,23 +168,28 @@ public final class NoteStoreReader: Sendable {
 
             let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
 
-            // Find the note's Z_PK from its ZIDENTIFIER
-            let notePKRows = try Row.fetchAll(
-                conn,
-                sql: "SELECT z_pk FROM ziccloudsyncingobject WHERE z_ent = ? AND zidentifier = ?",
-                arguments: [noteEnt, noteID]
-            )
-            guard let notePKRow = notePKRows.first,
-                  let notePK = (notePKRow[0] as Int64?).map({ Int($0) }) else { return [] }
+            // Prefer the Z_PK parsed from the x-coredata id; fall back to a ZIDENTIFIER lookup.
+            let resolvedPK: Int
+            if let pk = notePK(fromScriptingID: noteID) {
+                resolvedPK = pk
+            } else {
+                let notePKRows = try Row.fetchAll(
+                    conn,
+                    sql: "SELECT z_pk FROM ziccloudsyncingobject WHERE z_ent = ? AND zidentifier = ?",
+                    arguments: [noteEnt, noteID]
+                )
+                guard let pk = (notePKRows.first?[0] as Int64?).map({ Int($0) }) else { return [] }
+                resolvedPK = pk
+            }
 
             let acctUUID = try resolveAccountUUIDForNote(
-                notePK: notePK, accounts: accounts, conn: conn
+                notePK: resolvedPK, accounts: accounts, conn: conn
             )
 
             return try queryAttachments(
                 conn: conn,
                 noteID: noteID,
-                notePK: notePK,
+                notePK: resolvedPK,
                 acctUUID: acctUUID,
                 attachEnt: attachEnt,
                 mediaEnt: mediaEnt
@@ -266,24 +206,65 @@ private extension NoteStoreReader {
         return "\(home)/\(NoteStoreReader.noteStoreRelativePath)"
     }
 
-    func cachedDBPath() -> String {
-        "\(cacheDir)/NoteStore.sqlite"
-    }
-
     func openDB() throws -> DatabaseQueue {
-        let path = cachedDBPath()
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw NotesError.commandFailed(
-                message: "NoteStore cache not found. Call refresh() first."
-            )
-        }
+        let path = databasePath ?? sourceDBPath()
         var config = Configuration()
+        // R1: read-only + busy-timeout (NOT immutable=1) so we see our own future
+        // writes via the -wal file rather than a stale checkpointed snapshot.
         config.readonly = true
+        config.busyMode = .timeout(5)
         do {
             return try DatabaseQueue(path: path, configuration: config)
+        } catch let error as NSError where error.domain == NSPOSIXErrorDomain
+            && (error.code == EPERM || error.code == EACCES) {
+            throw NotesError.commandFailed(message: Self.fullDiskAccessMessage)
         } catch {
             throw NotesError.databaseCorrupted(underlying: error)
         }
+    }
+
+    static let fullDiskAccessMessage = """
+        Cannot access Apple Notes database — permission denied.
+
+        notes-cli reads Apple Notes directly via SQLite (no AppleScript).
+        This requires Full Disk Access for your terminal app.
+
+        To fix, add one of these to Full Disk Access:
+          • Your terminal app (Terminal, iTerm, Ghostty, etc.), OR
+          • The notes-cli binary itself (/usr/local/bin/notes-cli)
+
+        Steps:
+          1. Open System Settings → Privacy & Security → Full Disk Access
+          2. Click + and add the app/binary
+          3. Restart your terminal (if you added the terminal app)
+          4. Run a notes-cli read command again
+
+        Or open the settings pane directly:
+          open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+        """
+}
+
+// MARK: - Private: Scripting identifiers
+
+private extension NoteStoreReader {
+    /// The Core Data store UUID (Z_METADATA.Z_UUID). Combined with a note's Z_PK it
+    /// reconstructs the `x-coredata://<uuid>/ICNote/p<pk>` id that ScriptingBridge uses
+    /// to address a note — verified equal to `id of note`.
+    func fetchStoreUUID(_ db: Database) -> String? {
+        try? String.fetchOne(db, sql: "SELECT Z_UUID FROM Z_METADATA LIMIT 1")
+    }
+
+    /// Build a note's scripting id from the store UUID and its Z_PK rowid.
+    /// Falls back to the raw ZIDENTIFIER only if the store UUID is unavailable.
+    func makeNoteID(storeUUID: String?, pk: Int, fallback: String) -> String {
+        guard let storeUUID, !storeUUID.isEmpty else { return fallback }
+        return "x-coredata://\(storeUUID)/ICNote/p\(pk)"
+    }
+
+    /// Extract the note Z_PK from an `x-coredata://…/ICNote/p<pk>` id, if present.
+    func notePK(fromScriptingID id: String) -> Int? {
+        guard let range = id.range(of: "/ICNote/p") else { return nil }
+        return Int(id[range.upperBound...].prefix { $0.isNumber })
     }
 }
 
@@ -355,6 +336,7 @@ private extension NoteStoreReader {
                 SELECT z_pk, ztitle2, zidentifier, zparent, zowner, zfoldertype
                 FROM ziccloudsyncingobject
                 WHERE z_ent = ? AND (zfoldertype IS NULL OR zfoldertype = 0)
+                  AND (zmarkedfordeletion IS NULL OR zmarkedfordeletion = 0)
                 """,
             arguments: [folderEnt]
         )
@@ -374,7 +356,7 @@ private extension NoteStoreReader {
     /// Build a PK → FolderInfo index with fully-resolved folder paths.
     ///
     /// Root-level folders (no parent in our set) are prefixed with the account name,
-    /// matching the path format AppleScript returns (e.g., "iCloud/My Folder/Subfolder").
+    /// matching Apple Notes' account-prefixed path format (e.g., "iCloud/My Folder/Subfolder").
     func buildFolderIndex(
         _ rawFolders: [RawFolderRow],
         accounts: [Int: AccountInfo]
@@ -487,10 +469,13 @@ private extension NoteStoreReader {
         _ db: Database,
         noteEnt: Int64,
         validFolderPKs: Set<Int>,
-        identifier: String? = nil
+        identifier: String? = nil,
+        pk: Int? = nil
     ) throws -> [NoteRow] {
         // Use NULL-column compatibility trick for columns that may not exist on older macOS
-        let identifierClause = identifier != nil ? "AND zidentifier = ?" : ""
+        var filterClause = ""
+        if identifier != nil { filterClause += " AND zidentifier = ?" }
+        if pk != nil { filterClause += " AND z_pk = ?" }
         let sql = """
             SELECT z_pk, zidentifier, ztitle1, zfolder,
                    COALESCE(zcreationdate1, zcreationdate2, zcreationdate3, zmodificationdate1),
@@ -500,11 +485,15 @@ private extension NoteStoreReader {
                        NULL AS zcreationdate2, NULL AS zcreationdate3
                 FROM ziccloudsyncingobject
             )
-            WHERE z_ent = ? AND ztitle1 IS NOT NULL \(identifierClause)
+            WHERE z_ent = ? AND ztitle1 IS NOT NULL
+              AND (zmarkedfordeletion IS NULL OR zmarkedfordeletion = 0) \(filterClause)
             """
         var arguments: StatementArguments = [noteEnt]
         if let identifier {
             arguments += [identifier]
+        }
+        if let pk {
+            arguments += [pk]
         }
         let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
         return rows.compactMap { row -> NoteRow? in
@@ -537,6 +526,7 @@ private extension NoteStoreReader {
               let folderEnt = entityTypes["ICFolder"],
               let accountEnt = entityTypes["ICAccount"] else { return [] }
 
+        let storeUUID = fetchStoreUUID(conn)
         let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
         let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
         let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
@@ -545,12 +535,11 @@ private extension NoteStoreReader {
         let rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs)
 
         return try rows.compactMap { row -> AppleNoteRaw? in
-            guard let identifier = row.identifier,
-                  let title = row.title,
+            guard let title = row.title,
                   let folderPK = row.folderPK else { return nil }
             return try buildAppleNoteRaw(
                 row: row,
-                identifier: identifier,
+                id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: row.identifier ?? ""),
                 title: title,
                 folderPK: folderPK,
                 folderIndex: folderIndex,
@@ -564,7 +553,7 @@ private extension NoteStoreReader {
     // swiftlint:disable:next function_parameter_count
     func buildAppleNoteRaw(
         row: NoteRow,
-        identifier: String,
+        id: String,
         title: String,
         folderPK: Int,
         folderIndex: [Int: FolderInfo],
@@ -578,7 +567,7 @@ private extension NoteStoreReader {
         // Locked notes: store metadata only, body is empty
         guard !row.isLocked else {
             return AppleNoteRaw(
-                id: identifier,
+                id: id,
                 name: title,
                 bodyProtobuf: Data(),
                 bodyPlaintext: "",
@@ -592,10 +581,10 @@ private extension NoteStoreReader {
             )
         }
 
-        let (body, plaintext) = decodeNoteBody(notePK: row.pk, conn: conn, noteID: identifier)
+        let (body, plaintext) = decodeNoteBody(notePK: row.pk, conn: conn, noteID: id)
 
         return AppleNoteRaw(
-            id: identifier,
+            id: id,
             name: title,
             bodyProtobuf: body,
             bodyPlaintext: plaintext,

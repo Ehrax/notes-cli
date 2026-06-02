@@ -8,26 +8,16 @@ import NotesTestSupport
 @Suite("DirectNotesService Tests")
 struct DirectNotesServiceTests {
 
-    private var realDBAccessible: Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let path = "\(home)/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
-        return FileManager.default.isReadableFile(atPath: path)
-    }
-
-    private func makeTempReader() throws -> (NoteStoreReader, URL) {
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
-        return (reader, tempDir)
+    /// A path that does not point at a readable SQLite database.
+    private func bogusDBPath() -> String {
+        "/tmp/notes-cli-test-nonexistent-\(UUID().uuidString)/NoteStore.sqlite"
     }
 
     // MARK: - Availability
 
     @Test("isAvailable returns false when NoteStoreReader reports unavailable")
     func isAvailableReturnsFalseWhenReaderUnavailable() async throws {
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+        let reader = NoteStoreReader()
         // NoteStoreReader.isAvailable() checks for ~/Library/Group Containers/.../NoteStore.sqlite
         // In most test environments this is accessible (with disk access) or not.
         // We just verify DirectNotesService.isAvailable() returns a Bool without crashing.
@@ -42,7 +32,7 @@ struct DirectNotesServiceTests {
         // Test: create service with real reader (whose isAvailable = NoteStore.sqlite exists or not)
         // and confirm we get a Bool, not a crash.
         let scope = Config.NotesScope.default
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         // isAvailable either succeeds or throws (permission denial) — both are valid
@@ -53,7 +43,7 @@ struct DirectNotesServiceTests {
         } catch let error as NotesError {
             // Automation permission denial is expected in test environments
             switch error {
-            case .appleScriptError:
+            case .scriptingBridgeError:
                 break
             default:
                 Issue.record("Unexpected NotesError: \(error)")
@@ -67,12 +57,9 @@ struct DirectNotesServiceTests {
 
     @Test("scopedFolderPath delegates to scope")
     func scopedFolderPathDelegatesToScope() async throws {
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+        let reader = NoteStoreReader()
         let scope = Config.NotesScope(selectedAccount: "iCloud", rootFolder: nil)
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         let result = service.scopedFolderPath("Notes")
@@ -82,12 +69,9 @@ struct DirectNotesServiceTests {
 
     @Test("resolvedFolderPath with nil returns account root")
     func resolvedFolderPathNilReturnsRoot() async throws {
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+        let reader = NoteStoreReader()
         let scope = Config.NotesScope(selectedAccount: "iCloud", rootFolder: nil)
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         let result = service.resolvedFolderPath(nil)
@@ -96,12 +80,9 @@ struct DirectNotesServiceTests {
 
     @Test("scope is correctly stored")
     func scopeIsCorrectlyStored() async throws {
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+        let reader = NoteStoreReader()
         let scope = Config.NotesScope(selectedAccount: "Gmail", rootFolder: "notes-cli")
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         #expect(service.scope.selectedAccount == "Gmail")
@@ -110,16 +91,11 @@ struct DirectNotesServiceTests {
 
     // MARK: - Read delegation errors
 
-    @Test("fetchAllNotes throws when reader has no cache DB")
-    func fetchAllNotesThrowsWhenNoCacheDB() async throws {
-        guard !realDBAccessible else { return }
-
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+    @Test("fetchAllNotes throws when the live DB path is unreadable")
+    func fetchAllNotesThrowsWhenUnreadable() async throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         let scope = Config.NotesScope.default
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         await #expect(throws: (any Error).self) {
@@ -127,16 +103,11 @@ struct DirectNotesServiceTests {
         }
     }
 
-    @Test("fetchFolders throws when reader has no cache DB")
-    func fetchFoldersThrowsWhenNoCacheDB() async throws {
-        guard !realDBAccessible else { return }
-
-        let tempDir = try makeTempDirectory(prefix: "notes-cli-direct-notes-test")
-        defer { removeTempDirectory(tempDir) }
-
-        let reader = NoteStoreReader(cacheDir: tempDir.path)
+    @Test("fetchFolders throws when the live DB path is unreadable")
+    func fetchFoldersThrowsWhenUnreadable() async throws {
+        let reader = NoteStoreReader(databasePath: bogusDBPath())
         let scope = Config.NotesScope.default
-        let writer = await AppleScriptWriter(runner: AppleScriptRunner(), scope: scope)
+        let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
 
         await #expect(throws: (any Error).self) {

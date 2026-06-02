@@ -1,5 +1,4 @@
 import Foundation
-import struct NotesCore.Tag
 import Testing
 @testable import NotesCLI
 @testable import NotesCore
@@ -48,11 +47,6 @@ struct OutputFormatterTests {
         ),
     ]
 
-    private let sampleTags: [Tag] = [
-        Tag(id: 1, name: "important"),
-        Tag(id: 2, name: "todo"),
-    ]
-
     private let sampleFolders: [Folder] = [
         Folder(id: "folder-1", name: "Notes", path: "Notes"),
         Folder(id: "folder-2", name: "Work", path: "Work", isProtected: true),
@@ -72,18 +66,6 @@ struct OutputFormatterTests {
         let array = try #require(parsed as? [[String: Any]])
         #expect(array.count == 2)
         #expect(array[0]["title"] as? String == "First Note")
-    }
-
-    @Test("JSON output for tags is valid JSON")
-    func jsonTagsIsValidJSON() throws {
-        let output = try captureStdout {
-            try OutputFormatter.printTags(sampleTags, format: .json)
-        }
-
-        let data = Data(output.utf8)
-        let parsed = try JSONSerialization.jsonObject(with: data)
-        let array = try #require(parsed as? [[String: Any]])
-        #expect(array.count == 2)
     }
 
     @Test("JSON output for folders is valid JSON")
@@ -130,18 +112,6 @@ struct OutputFormatterTests {
         }
     }
 
-    @Test("Table output for tags has header and data")
-    func tableTagsHasHeader() throws {
-        let output = try captureStdout {
-            try OutputFormatter.printTags(sampleTags, format: .table)
-        }
-
-        #expect(output.contains("ID"))
-        #expect(output.contains("Name"))
-        #expect(output.contains("important"))
-        #expect(output.contains("todo"))
-    }
-
     @Test("Table output for empty notes shows message")
     func tableEmptyNotes() throws {
         let output = try captureStdout {
@@ -178,17 +148,6 @@ struct OutputFormatterTests {
         #expect(output.contains("| Work |"))
     }
 
-    @Test("Markdown tags has list format")
-    func markdownTagsHasList() throws {
-        let output = try captureStdout {
-            try OutputFormatter.printTags(sampleTags, format: .markdown)
-        }
-
-        #expect(output.contains("# Tags"))
-        #expect(output.contains("- important"))
-        #expect(output.contains("- todo"))
-    }
-
     @Test("Generic markdown output does not fall back to JSON")
     func genericMarkdownDoesNotFallBackToJSON() throws {
         struct StatusPayload: Encodable {
@@ -204,25 +163,6 @@ struct OutputFormatterTests {
         #expect(output.contains("# Output"))
         #expect(output.contains("**noteCount:** 2"))
         #expect(!output.contains("{\"folderCount\""))
-    }
-
-    @Test("Markdown sync output includes sync errors")
-    func markdownSyncOutputIncludesErrors() throws {
-        let result = SyncResult(
-            added: 1,
-            updated: 0,
-            deleted: 0,
-            unchanged: 0,
-            errors: [SyncError(noteID: "n1", message: "insert failed")]
-        )
-
-        let output = try captureStdout {
-            try OutputFormatter.printSyncResult(result, format: .markdown)
-        }
-
-        #expect(output.contains("# Sync Result"))
-        #expect(output.contains("## Errors"))
-        #expect(output.contains("n1: insert failed"))
     }
 
     @Test("Generic markdown output uses ISO8601 dates")
