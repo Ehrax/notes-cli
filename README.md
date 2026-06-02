@@ -47,15 +47,20 @@ notes-cli notes delete <id>    # → Recently Deleted (~30 days)
 
 notes-cli folders --tree
 notes-cli folder create "Projects" --parent "Work"
+notes-cli folder move "Work/Projects" --parent "Archive"
 
 notes-cli export --type md --output ./out
 ```
+
+> **`folder move` is a composed operation.** Apple's scripting can't re-parent a folder (its `move` command deletes it), so notes-cli recreates the folder and its subfolders under the new parent, moves the notes across (note ids are preserved), then deletes the original. The notes keep their ids; the folders get new ones, and the move isn't atomic. See [ADR 0002](docs/adr/0002-scriptingbridge-write-path.md).
 
 IDs come from the `id` field of `notes list` / `notes search`. Run `notes-cli notes --help` for the full verb list.
 
 ### Writing formatted notes
 
 `--body` is HTML, handed straight to Apple Notes. Honored: `<h1>/<h2>/<h3>`, `<b> <i> <u>`, `<ul>/<ol>/<li>`, `<a href>`, `<br>/<div>/<p>` (CSS, classes, and colors are ignored). The CLI bakes `--title` in as the note's first line and spaces sections automatically — just write semantic HTML.
+
+**Heading fidelity caveat.** Apple's HTML importer doesn't store a heading *style* for `<h1>/<h2>/<h3>` — it renders them as **bold** text. So a note looks right in Notes.app, but when you read it back (`notes read`, `export`) headings come out as bold, not Markdown `#`/`##` — the level isn't recoverable because Apple never stored it. Bold, italic, underline (→ bold), strikethrough, lists, and links all round-trip. This is an Apple Notes scripting limitation (no API to set paragraph styles), not a notes-cli bug. See [ADR 0002](docs/adr/0002-scriptingbridge-write-path.md).
 
 ### AI footer
 
