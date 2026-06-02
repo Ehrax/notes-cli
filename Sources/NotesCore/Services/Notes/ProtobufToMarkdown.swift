@@ -364,8 +364,10 @@ private struct MarkdownMapper {
         // Font weight
         if !suppressBold, let weight = FontWeight(rawValue: run.fontWeight) {
             switch weight {
-            case .bold, .boldItalic: result = wrapMarker(result, marker: "**")
-            case .italic, .regular: break
+            case .bold: result = wrapMarker(result, marker: "**")
+            case .italic: result = wrapMarker(result, marker: "*")
+            case .boldItalic: result = wrapMarker(result, marker: "***")
+            case .regular: break
             }
         }
 

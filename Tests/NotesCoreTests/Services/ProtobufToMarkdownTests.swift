@@ -191,7 +191,7 @@ struct ProtobufToMarkdownTests {
         #expect(result.markdown == "**Bold text**")
     }
 
-    @Test("Italic renders as plain text")
+    @Test("Italic renders with single asterisks")
     func italic() throws {
         let resolver = MockAttachmentResolver()
         let data = try makeNoteData(
@@ -199,10 +199,10 @@ struct ProtobufToMarkdownTests {
             runs: [makeRun(text: "Italic text\n", fontWeight: 2)]
         )
         let result = try ProtobufToMarkdown.convert(data: data, resolver: resolver)
-        #expect(result.markdown == "Italic text")
+        #expect(result.markdown == "*Italic text*")
     }
 
-    @Test("BoldItalic renders as bold only")
+    @Test("BoldItalic renders with triple asterisks")
     func boldItalic() throws {
         let resolver = MockAttachmentResolver()
         let data = try makeNoteData(
@@ -210,7 +210,7 @@ struct ProtobufToMarkdownTests {
             runs: [makeRun(text: "Mixed\n", fontWeight: 3)]
         )
         let result = try ProtobufToMarkdown.convert(data: data, resolver: resolver)
-        #expect(result.markdown == "**Mixed**")
+        #expect(result.markdown == "***Mixed***")
     }
 
     @Test("Underline renders as bold")
