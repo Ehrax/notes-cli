@@ -141,6 +141,13 @@ struct CommandTests {
         #expect(subcommandNames.contains("search"))
     }
 
+    @Test("notes group has no default subcommand so `notes --help` lists its verbs")
+    func notesHasNoDefaultSubcommand() {
+        // A default subcommand makes `notes --help` render that subcommand's help
+        // instead of the group's verb listing, hiding read/create/edit/... from agents.
+        #expect(NotesCommand.configuration.defaultSubcommand == nil)
+    }
+
     @Test("OutputFormat cases are complete")
     func outputFormatCases() {
         let allCases = OutputFormat.allCases
@@ -199,6 +206,18 @@ struct CommandWriteTests {
         #expect(notes.lastCreatedFolder == "Projects/Ideas")
     }
 
+    @Test("create forwards --agent to the service for the AI footer")
+    func createForwardsAgent() async throws {
+        let notes = MockNotesService()
+        try await withNotes(notes) {
+            let command = try NotesCreateCommand.parse([
+                "--title", "T", "--body", "<div>b</div>", "--agent", "Claude Opus 4.8", "--format", "json",
+            ])
+            try await discardStdout { try await command.run() }
+        }
+        #expect(notes.lastCreatedAgent == "Claude Opus 4.8")
+    }
+
     @Test("edit calls the writer with the provided title and body")
     func editCallsWriter() async throws {
         let notes = MockNotesService()
@@ -213,6 +232,21 @@ struct CommandWriteTests {
         #expect(notes.lastUpdatedID == "n1")
         #expect(notes.lastUpdatedTitle == "New")
         #expect(notes.lastUpdatedBody == "<p>new</p>")
+    }
+
+    @Test("edit without --title/--body refuses to open an editor when non-interactive")
+    func editRefusesEditorWhenNonInteractive() async throws {
+        NotesEditCommand.interactiveOverride = false
+        defer { NotesEditCommand.interactiveOverride = nil }
+        let notes = MockNotesService()
+        notes.notes = [makeSampleAppleNote(id: "n1", name: "Old", folder: "Notes")]
+        await #expect(throws: NotesError.self) {
+            try await withNotes(notes) {
+                let command = try NotesEditCommand.parse(["n1", "--format", "json"])
+                try await discardStdout { try await command.run() }
+            }
+        }
+        #expect(!notes.updateNoteCalled)
     }
 
     @Test("move calls the writer with the destination folder")
@@ -433,8 +467,26 @@ struct InitCommandTests {
         }
 
         #expect(config.savedConfig?.notes.selectedAccount == "iCloud")
+        #expect(config.savedConfig?.aiFooterEnabled == true)
         #expect(notes.fetchAccountNamesCalled)
         #expect(notes.fetchDefaultAccountNameCalled)
+    }
+
+    @Test("init --no-ai-footer disables the AI footer in saved config")
+    func initNoAIFooterDisablesFooter() async throws {
+        let notes = MockNotesService()
+        notes.accountNames = ["iCloud"]
+        notes.defaultAccountName = "iCloud"
+        let config = try InitCommandConfigService()
+
+        try await withOverrides(notes: notes, config: config) {
+            let command = try InitCommand.parse(["--yes", "--no-ai-footer", "--format", "json"])
+            try await discardStdout {
+                try await command.run()
+            }
+        }
+
+        #expect(config.savedConfig?.aiFooterEnabled == false)
     }
 
     @Test("init fails clearly when Notes has no accounts")

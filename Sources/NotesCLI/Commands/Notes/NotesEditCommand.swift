@@ -1,22 +1,39 @@
 import ArgumentParser
+import Darwin
 import NotesCore
 import Foundation
 
 struct NotesEditCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "edit",
-        abstract: "Edit a note by ID (opens $EDITOR, or uses --title/--body flags)"
+        abstract: "Edit a note by ID (opens $EDITOR, or uses --title/--body flags)",
+        discussion: """
+        Pass --title and/or --body to edit non-interactively (required for agents and pipes).
+        With no flags it opens $EDITOR seeded with the current body, which needs a TTY.
+
+        --body is HTML (see `notes create --help` for honored tags).
+        With --body, --title becomes the note's first line; --title alone updates the name only.
+        """
     )
+
+    /// Test seam: overrides the real TTY probe when set; `nil` falls back to `isatty(STDIN)`.
+    nonisolated(unsafe) static var interactiveOverride: Bool?
 
     @OptionGroup var global: GlobalOptions
 
     @Argument(help: "The note ID to edit")
     var id: String
 
-    @Option(name: .long, help: "New title for the note")
+    @Option(
+        name: .long,
+        help: ArgumentHelp(
+            "New title. With --body it becomes the note's first line; "
+                + "alone it updates the note's name only."
+        )
+    )
     var title: String?
 
-    @Option(name: .long, help: "New body (HTML) for the note")
+    @Option(name: .long, help: "New body as HTML (see `notes create --help` for honored tags)")
     var body: String?
 
     func run() async throws {
@@ -32,6 +49,15 @@ struct NotesEditCommand: AsyncParsableCommand {
             newTitle = title
             newBody = body
         } else {
+            // No flags: opening $EDITOR needs a TTY. Refuse non-interactive callers (agents,
+            // pipes, /dev/null stdin) with a clear error rather than blocking on an editor.
+            let interactive = Self.interactiveOverride ?? (isatty(STDIN_FILENO) != 0)
+            guard interactive else {
+                throw NotesError.commandFailed(
+                    message: "notes edit requires --title and/or --body when run non-interactively; "
+                        + "an interactive $EDITOR session needs a TTY."
+                )
+            }
             // Interactive: open $EDITOR seeded with the note's current markdown body.
             guard let raw = try await notesSvc.fetchNote(id: id) else {
                 throw NotesError.noteNotFound(id: id)

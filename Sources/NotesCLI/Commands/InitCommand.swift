@@ -13,6 +13,9 @@ struct InitCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Non-interactive mode, accept all defaults (for AI agents)")
     var yes = false
 
+    @Flag(name: .long, help: "Don't append the italic 'created by AI' footer to new notes")
+    var noAiFooter = false
+
     func run() async throws {
         global.configureLogging()
         let container = ServiceContainer.shared
@@ -24,6 +27,7 @@ struct InitCommand: AsyncParsableCommand {
         let accounts = try await resolveNotesAccountsWithFallback(default: defaultAccount)
 
         var config = Config.default
+        config.aiFooterEnabled = !noAiFooter
         if yes {
             config.notes.selectedAccount = defaultAccount
         } else {

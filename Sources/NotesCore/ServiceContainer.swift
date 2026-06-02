@@ -50,7 +50,9 @@ public actor ServiceContainer {
             }
             let reader = NoteStoreReader()
             let writer = await ScriptingBridgeWriter(scope: cfg.notes)
-            let service = DirectNotesService(reader: reader, writer: writer, scope: cfg.notes)
+            let service = DirectNotesService(
+                reader: reader, writer: writer, scope: cfg.notes, aiFooterEnabled: cfg.aiFooterEnabled
+            )
             _notes = service
             return service
         }

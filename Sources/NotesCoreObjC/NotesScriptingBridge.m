@@ -75,14 +75,15 @@ NSString *_Nullable NotesSBDefaultAccountName(void) {
 
 NSString *_Nullable NotesSBCreateNote(NSString *_Nullable accountName,
                                       NSString *folderPath,
-                                      NSString *title,
                                       NSString *bodyHTML,
                                       NSError **error) {
     NotesApplication *app = NCApp();
     SBObject *container = NCResolveContainer(app, accountName, folderPath, error);
     if (!container) { return nil; }
     Class noteClass = [app classForScriptingClass:@"note"];
-    NotesNote *note = [[noteClass alloc] initWithProperties:@{@"name": title, @"body": bodyHTML}];
+    // Set `body` only: Apple derives the title from its first line. Setting `name` too
+    // renders the title twice.
+    NotesNote *note = [[noteClass alloc] initWithProperties:@{@"body": bodyHTML}];
     [[(id<NCNavigable>)container notes] addObject:note];
     NSString *newID = note.id;
     if (newID.length == 0) {

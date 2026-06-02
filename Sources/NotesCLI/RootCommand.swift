@@ -7,6 +7,10 @@ struct RootCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "notes-cli",
         abstract: "AI-native Apple Notes CLI",
+        discussion: """
+        Output is JSON when piped, a table on a TTY; --format json|table|markdown forces one.
+        Apple Notes is the source of truth: writes apply immediately, no undo (deletes go to Recently Deleted).
+        """,
         version: "0.1.0",
         subcommands: [
             InitCommand.self,

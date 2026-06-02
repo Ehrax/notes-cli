@@ -84,6 +84,9 @@ public struct Config: Codable, Sendable {
     /// Apple Notes account scoping configuration.
     public var notes: NotesScope
 
+    /// When true, `notes create` appends an italic "created by AI" footer (default on).
+    public var aiFooterEnabled: Bool
+
     public enum OutputFormat: String, Codable, Sendable {
         case json
         case table
@@ -92,15 +95,18 @@ public struct Config: Codable, Sendable {
 
     public init(
         defaultFormat: OutputFormat? = nil,
-        notes: NotesScope = .default
+        notes: NotesScope = .default,
+        aiFooterEnabled: Bool = true
     ) {
         self.defaultFormat = defaultFormat
         self.notes = notes
+        self.aiFooterEnabled = aiFooterEnabled
     }
 
     enum CodingKeys: String, CodingKey {
         case defaultFormat
         case notes
+        case aiFooterEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -108,6 +114,7 @@ public struct Config: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         defaultFormat = try container.decodeIfPresent(OutputFormat.self, forKey: .defaultFormat)
         notes = try container.decodeIfPresent(NotesScope.self, forKey: .notes) ?? .default
+        aiFooterEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiFooterEnabled) ?? true
     }
 
     /// Sensible defaults for a fresh installation.

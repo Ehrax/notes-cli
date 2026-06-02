@@ -17,10 +17,10 @@ extern NSString *const NotesScriptingBridgeErrorDomain;
 /// Name of the default Notes account, or nil if Notes/Automation is unreachable.
 NSString *_Nullable NotesSBDefaultAccountName(void);
 
-/// Create a note; returns its new x-coredata id, or nil + error.
+/// Create a note from a full HTML body and return its new x-coredata id, or nil + error.
+/// The title is the body's first line (Apple derives `name` from it) — never set separately.
 NSString *_Nullable NotesSBCreateNote(NSString *_Nullable accountName,
                                       NSString *folderPath,
-                                      NSString *title,
                                       NSString *bodyHTML,
                                       NSError *_Nullable *_Nullable error);
 

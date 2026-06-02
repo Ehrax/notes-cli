@@ -34,6 +34,7 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     public var lastCreatedTitle: String?
     public var lastCreatedBody: String?
     public var lastCreatedFolder: String?
+    public var lastCreatedAgent: String?
     public var lastUpdatedID: String?
     public var lastUpdatedTitle: String?
     public var lastUpdatedBody: String?
@@ -140,10 +141,11 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
         return notes.first { $0.id == id }
     }
 
-    public func createNote(title: String, bodyHTML: String, folderName: String) async throws -> String {
+    public func createNote(title: String, bodyHTML: String, folderName: String, agent: String?) async throws -> String {
         createNoteCalled = true
         lastCreatedTitle = title
         lastCreatedBody = bodyHTML
+        lastCreatedAgent = agent
         let resolvedFolderName = resolvedFolderPath(folderName)
         lastCreatedFolder = resolvedFolderName
         if let error = errorToThrow { throw error }

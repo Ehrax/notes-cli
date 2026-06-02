@@ -7,12 +7,22 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
     private let reader: NoteStoreReader
     private let writer: ScriptingBridgeWriter
     let scope: Config.NotesScope
+    private let aiFooterEnabled: Bool
 
-    public init(reader: NoteStoreReader, writer: ScriptingBridgeWriter, scope: Config.NotesScope) {
+    public init(
+        reader: NoteStoreReader,
+        writer: ScriptingBridgeWriter,
+        scope: Config.NotesScope,
+        aiFooterEnabled: Bool = true
+    ) {
         self.reader = reader
         self.writer = writer
         self.scope = scope
+        self.aiFooterEnabled = aiFooterEnabled
     }
+
+    /// Environment variable the calling agent/harness sets to identify the model in the footer.
+    static let agentEnvVar = "NOTES_CLI_AGENT"
 
     // MARK: - Read Operations (NoteStoreReader — SQLite, any thread)
 
@@ -70,8 +80,13 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
 
     // MARK: - Write Operations (ScriptingBridgeWriter — @MainActor)
 
-    public func createNote(title: String, bodyHTML: String, folderName: String) async throws -> String {
-        try await writer.createNote(title: title, bodyHTML: bodyHTML, folderName: folderName)
+    public func createNote(title: String, bodyHTML: String, folderName: String, agent: String?) async throws -> String {
+        var body = bodyHTML
+        if aiFooterEnabled {
+            let model = agent ?? ProcessInfo.processInfo.environment[Self.agentEnvVar]
+            body += NoteHTML.footer(model: model)
+        }
+        return try await writer.createNote(title: title, bodyHTML: body, folderName: folderName)
     }
 
     public func updateNote(id: String, title: String?, bodyHTML: String?) async throws {

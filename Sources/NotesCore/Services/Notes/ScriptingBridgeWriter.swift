@@ -19,7 +19,8 @@ public final class ScriptingBridgeWriter: Sendable {
     public func createNote(title: String, bodyHTML: String, folderName: String) throws -> String {
         let target = resolved(folderName)
         var error: NSError?
-        guard let id = NotesSBCreateNote(target.account, target.path, title, bodyHTML, &error) else {
+        let body = NoteHTML.composeBody(title: title, contentHTML: bodyHTML)
+        guard let id = NotesSBCreateNote(target.account, target.path, body, &error) else {
             throw Self.mapError(error)
         }
         return id
@@ -27,7 +28,16 @@ public final class ScriptingBridgeWriter: Sendable {
 
     public func updateNote(id: String, title: String?, bodyHTML: String?) throws {
         var error: NSError?
-        if !NotesSBUpdateNote(id, title, bodyHTML, &error) {
+        let ok: Bool
+        if let bodyHTML {
+            // Replacing the body: bake the title into the first line and let Apple derive the
+            // name, so a title is never rendered twice.
+            ok = NotesSBUpdateNote(id, nil, NoteHTML.composeBody(title: title, contentHTML: bodyHTML), &error)
+        } else {
+            // Title-only edit: update the metadata name in place (no body to rewrite).
+            ok = NotesSBUpdateNote(id, title, nil, &error)
+        }
+        if !ok {
             throw Self.mapError(error, noteID: id)
         }
     }

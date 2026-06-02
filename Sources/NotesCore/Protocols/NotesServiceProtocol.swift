@@ -10,7 +10,7 @@ public protocol NotesServiceProtocol: Sendable {
     func fetchAllNotes() async throws -> [AppleNoteRaw]
     func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw]
     func fetchNote(id: String) async throws -> AppleNoteRaw?
-    func createNote(title: String, bodyHTML: String, folderName: String) async throws -> String
+    func createNote(title: String, bodyHTML: String, folderName: String, agent: String?) async throws -> String
     func updateNote(id: String, title: String?, bodyHTML: String?) async throws
     func deleteNote(id: String) async throws
     func moveNote(id: String, toFolder folderName: String) async throws

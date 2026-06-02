@@ -5,6 +5,7 @@ struct FolderCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "folder",
         abstract: "Create, rename, move, or delete folders",
+        discussion: "Folder paths are `/`-separated (e.g. Projects/Ideas), relative to the account chosen by `init`.",
         subcommands: [
             FolderCreateCommand.self,
             FolderRenameCommand.self,
