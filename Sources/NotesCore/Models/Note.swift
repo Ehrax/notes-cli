@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import GRDB
 
@@ -13,8 +12,6 @@ public struct Note: Codable, Sendable, Equatable {
     public var creationDate: Date
     public var modificationDate: Date
     public var isLocked: Bool
-    public var checksum: String
-    public var syncedAt: Date
 
     public init(
         id: String,
@@ -26,9 +23,7 @@ public struct Note: Codable, Sendable, Equatable {
         snippet: String? = nil,
         creationDate: Date = Date(),
         modificationDate: Date = Date(),
-        isLocked: Bool = false,
-        checksum: String? = nil,
-        syncedAt: Date = Date()
+        isLocked: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -40,11 +35,9 @@ public struct Note: Codable, Sendable, Equatable {
         self.creationDate = creationDate
         self.modificationDate = modificationDate
         self.isLocked = isLocked
-        self.checksum = checksum ?? Note.computeChecksum(bodyProtobuf)
-        self.syncedAt = syncedAt
     }
 
-    public init(from raw: AppleNoteRaw, syncedAt: Date = Date()) {
+    public init(from raw: AppleNoteRaw) {
         self.init(
             id: raw.id,
             title: raw.name,
@@ -55,17 +48,9 @@ public struct Note: Codable, Sendable, Equatable {
             snippet: raw.snippet,
             creationDate: raw.creationDate,
             modificationDate: raw.modificationDate,
-            isLocked: raw.isLocked,
-            syncedAt: syncedAt
+            isLocked: raw.isLocked
         )
     }
-
-    public static func computeChecksum(_ body: Data) -> String {
-        let digest = SHA256.hash(data: body)
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
 }
 
-extension Note: FetchableRecord {
-    public static let databaseTableName = "note"
-}
+extension Note: FetchableRecord {}

@@ -97,7 +97,7 @@ public enum ProtobufToMarkdown {
     }
 
     /// Lightweight plaintext extraction: gunzip + protobuf decode + read noteText.
-    /// No markdown conversion, no attachment resolution. Fast for sync.
+    /// No markdown conversion and no attachment resolution.
     public static func extractPlaintext(from data: Data) -> String {
         do {
             let decompressed = try Gzip.decompress(data)

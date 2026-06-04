@@ -19,10 +19,11 @@ public final class ExportService: Sendable {
         format: ExportFormat,
         outputDir: String,
         folder: String? = nil,
-        ignoreFolders: [String] = []
+        ignoreFolders: [String] = [],
+        scope: Config.NotesScope = .default
     ) async throws -> ExportResult {
         let notes = try await fetchFiltered(
-            folder: folder, ignoreFolders: ignoreFolders
+            folder: folder, ignoreFolders: ignoreFolders, scope: scope
         )
 
         let outputURL = URL(fileURLWithPath: outputDir, isDirectory: true)
@@ -36,22 +37,20 @@ public final class ExportService: Sendable {
 
         for (index, note) in notes.enumerated() {
             let counter = "[\(index + 1)/\(total)]"
-            var exportNote = note
-            exportNote.folderPath = Self.fixFolderPath(note.folderPath)
             do {
                 let fileURL = try prepareFileURL(
-                    note: exportNote, format: format,
+                    note: note, format: format,
                     outputURL: outputURL, usedPaths: &usedPaths
                 )
-                let isNewFolder = !folderPaths.contains(exportNote.folderPath)
-                folderPaths.insert(exportNote.folderPath)
+                let isNewFolder = !folderPaths.contains(note.folderPath)
+                folderPaths.insert(note.folderPath)
 
                 if isNewFolder {
-                    Self.progress("\(counter) 📂 \(exportNote.folderPath)")
+                    Self.progress("\(counter) 📂 \(note.folderPath)")
                 }
 
                 let content = try await renderContent(
-                    note: exportNote, format: format, outputURL: outputURL
+                    note: note, format: format, outputURL: outputURL
                 )
                 try content.write(
                     to: fileURL, atomically: true, encoding: .utf8
@@ -73,9 +72,7 @@ public final class ExportService: Sendable {
 
     // MARK: - Markdown front-matter
 
-    static func markdownWithFrontmatter(
-        note: Note, tags: [String], body: String
-    ) -> String {
+    static func markdownWithFrontmatter(note: Note, body: String) -> String {
         var lines = ["---"]
         let escaped = note.title.replacingOccurrences(
             of: "\"", with: "\\\""
@@ -83,10 +80,6 @@ public final class ExportService: Sendable {
         lines.append("title: \"\(escaped)\"")
         lines.append("created: \(note.creationDate.iso8601String)")
         lines.append("modified: \(note.modificationDate.iso8601String)")
-        if !tags.isEmpty {
-            let tagList = tags.map { "\"\($0)\"" }.joined(separator: ", ")
-            lines.append("tags: [\(tagList)]")
-        }
         lines.append("---")
         lines.append(Self.stripRedundantTitle(body, title: note.title))
         return lines.joined(separator: "\n")
@@ -129,17 +122,18 @@ public final class ExportService: Sendable {
 
     private func fetchFiltered(
         folder: String?,
-        ignoreFolders: [String] = []
+        ignoreFolders: [String] = [],
+        scope: Config.NotesScope
     ) async throws -> [Note] {
         var notes = try await self.notes.fetchAllNotes().map { Note(from: $0) }
 
         if let folder {
-            notes = notes.filter { $0.folderPath.contains(folder) }
+            notes = notes.filter { scope.matchesFolderPath($0.folderPath, filter: folder) }
         }
 
         if !ignoreFolders.isEmpty {
             notes = notes.filter { note in
-                !ignoreFolders.contains { note.folderPath.contains($0) }
+                !ignoreFolders.contains { scope.matchesFolderPath(note.folderPath, filter: $0) }
             }
         }
 
@@ -171,27 +165,6 @@ public final class ExportService: Sendable {
         return folderURL.appendingPathComponent(fileName)
     }
 
-    /// Ensure space between emoji and text in each folder path component.
-    /// Apple Notes stores "👨‍💻ehrax.dev" but we want "👨‍💻 ehrax.dev".
-    static func fixFolderPath(_ path: String) -> String {
-        path.split(separator: "/", omittingEmptySubsequences: false)
-            .map { component in
-                var chars = Array(component)
-                // Find where emoji ends and text begins, insert space if missing
-                guard chars.count >= 2 else { return String(component) }
-                for idx in 0..<(chars.count - 1) {
-                    let curr = chars[idx]
-                    let next = chars[idx + 1]
-                    if curr.isEmoji && !next.isWhitespace && !next.isEmoji {
-                        chars.insert(" ", at: idx + 1)
-                        break
-                    }
-                }
-                return String(chars)
-            }
-            .joined(separator: "/")
-    }
-
     private static func datePrefix(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -204,23 +177,7 @@ public final class ExportService: Sendable {
     ) async throws -> String {
         let folderURL = outputURL.appendingPathComponent(note.folderPath, isDirectory: true)
 
-        // Convert protobuf → markdown, falling back to plaintext on failure
-        let body: String
-        if !note.bodyProtobuf.isEmpty {
-            do {
-                let result = try ProtobufToMarkdown.convert(data: note.bodyProtobuf, resolver: resolver)
-                body = result.markdown
-            } catch {
-                Log.debug(
-                    "Protobuf conversion failed for \(note.id), falling back to plaintext: \(error)",
-                    logger: Log.general
-                )
-                body = note.bodyPlaintext
-            }
-        } else {
-            body = note.bodyPlaintext
-        }
-
+        let body = NoteBodyRenderer.markdown(for: note, resolver: resolver)
         let bodyWithAttachments = try await resolveAttachments(
             noteID: note.id, body: body, folderURL: folderURL
         )
@@ -230,7 +187,7 @@ public final class ExportService: Sendable {
             return try Self.jsonContent(note: note, body: bodyWithAttachments)
         case .md:
             return Self.markdownWithFrontmatter(
-                note: note, tags: [], body: bodyWithAttachments
+                note: note, body: bodyWithAttachments
             )
         }
     }

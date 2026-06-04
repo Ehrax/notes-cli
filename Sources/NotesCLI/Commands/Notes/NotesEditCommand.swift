@@ -64,27 +64,18 @@ struct NotesEditCommand: AsyncParsableCommand {
             }
             let current = await Self.convertedBody(for: Note(from: raw), container: container)
             newTitle = nil
-            newBody = try openEditor(content: current)
+            newBody = NoteHTML.plainTextHTML(try openEditor(content: current))
         }
 
         try await notesSvc.updateNote(id: id, title: newTitle, bodyHTML: newBody)
         try OutputFormatter.printMessage("Updated note \(id)", format: global.resolvedFormat)
     }
 
-    /// Convert protobuf to markdown, falling back to bodyPlaintext on failure or empty data.
     private static func convertedBody(for note: Note, container: ServiceContainer) async -> String {
-        guard !note.bodyProtobuf.isEmpty else {
-            return note.bodyPlaintext
-        }
         do {
             let resolver = try await container.attachmentResolver
-            let result = try ProtobufToMarkdown.convert(data: note.bodyProtobuf, resolver: resolver)
-            return result.markdown
+            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
         } catch {
-            Log.debug(
-                "Protobuf conversion failed for note \(note.id), falling back to plaintext: \(error)",
-                logger: Log.general
-            )
             return note.bodyPlaintext
         }
     }

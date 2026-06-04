@@ -49,7 +49,7 @@ struct OutputFormatterTests {
 
     private let sampleFolders: [Folder] = [
         Folder(id: "folder-1", name: "Notes", path: "Notes"),
-        Folder(id: "folder-2", name: "Work", path: "Work", isProtected: true),
+        Folder(id: "folder-2", name: "Work", path: "Work"),
     ]
 
     // MARK: - JSON Tests
@@ -66,6 +66,9 @@ struct OutputFormatterTests {
         let array = try #require(parsed as? [[String: Any]])
         #expect(array.count == 2)
         #expect(array[0]["title"] as? String == "First Note")
+        #expect(array[0]["checksum"] == nil)
+        #expect(array[0]["syncedAt"] == nil)
+        #expect(array[0]["bodyProtobuf"] == nil)
     }
 
     @Test("JSON output for folders is valid JSON")
@@ -79,6 +82,8 @@ struct OutputFormatterTests {
         let parsed = try JSONSerialization.jsonObject(with: data)
         let array = try #require(parsed as? [[String: Any]])
         #expect(array.count == 2)
+        #expect(array[0]["isProtected"] == nil)
+        #expect(array[0]["sortOrder"] == nil)
     }
 
     // MARK: - Table Tests
@@ -146,6 +151,7 @@ struct OutputFormatterTests {
         #expect(output.contains("| Name |"))
         #expect(output.contains("| Notes |"))
         #expect(output.contains("| Work |"))
+        #expect(!output.contains("Protected"))
     }
 
     @Test("Generic markdown output does not fall back to JSON")

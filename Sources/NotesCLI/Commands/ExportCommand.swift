@@ -27,6 +27,7 @@ struct ExportCommand: AsyncParsableCommand {
 
         let notesSvc = try await container.notes
         let resolver = try await container.attachmentResolver
+        let config = try await container.config.loadConfig()
         let service = ExportService(notes: notesSvc, resolver: resolver)
 
         let result = try await service.export(
@@ -34,7 +35,8 @@ struct ExportCommand: AsyncParsableCommand {
             folder: folder,
             ignoreFolders: ignoreFolders?
                 .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+                .map { $0.trimmingCharacters(in: .whitespaces) } ?? [],
+            scope: config.notes
         )
 
         if result.exported == 0 && result.skipped == 0 {

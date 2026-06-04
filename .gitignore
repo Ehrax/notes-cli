@@ -7,7 +7,6 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 .agent/
-docs/
 Sources/NotesCore/Protobuf/notestore.pb.swift
 .worktrees/
 test-export/

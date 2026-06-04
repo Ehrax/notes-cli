@@ -64,10 +64,10 @@ enum MarkdownFormatter {
         }
 
         Swift.print("# Folders\n")
-        Swift.print("| Name | Path | Protected |")
-        Swift.print("|------|------|-----------|")
+        Swift.print("| Name | Path |")
+        Swift.print("|------|------|")
         for folder in folders {
-            Swift.print("| \(folder.name) | \(folder.path) | \(folder.isProtected ? "Yes" : "No") |")
+            Swift.print("| \(folder.name) | \(folder.path) |")
         }
     }
 

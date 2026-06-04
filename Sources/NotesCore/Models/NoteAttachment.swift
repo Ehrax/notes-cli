@@ -17,6 +17,4 @@ public struct NoteAttachment: Codable, Sendable, Equatable {
     }
 }
 
-extension NoteAttachment: FetchableRecord, PersistableRecord {
-    public static let databaseTableName = "noteAttachment"
-}
+extension NoteAttachment: FetchableRecord {}

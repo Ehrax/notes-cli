@@ -45,13 +45,12 @@ enum TableFormatter {
             return
         }
 
-        let headers = ["ID", "Name", "Path", "Protected"]
+        let headers = ["ID", "Name", "Path"]
         let rows: [[String]] = folders.map { folder in
             [
                 truncate(folder.id, max: 20),
                 folder.name,
                 folder.path,
-                folder.isProtected ? "Yes" : "No",
             ]
         }
         printTable(headers: headers, rows: rows)

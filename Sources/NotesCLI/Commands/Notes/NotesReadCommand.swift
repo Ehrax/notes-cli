@@ -26,20 +26,11 @@ struct NotesReadCommand: AsyncParsableCommand {
         try OutputFormatter.printNote(note, bodyText: bodyText, format: global.resolvedFormat)
     }
 
-    /// Convert protobuf to markdown, falling back to bodyPlaintext on failure or empty data.
     private static func convertedBody(for note: Note, container: ServiceContainer) async -> String {
-        guard !note.bodyProtobuf.isEmpty else {
-            return note.bodyPlaintext
-        }
         do {
             let resolver = try await container.attachmentResolver
-            let result = try ProtobufToMarkdown.convert(data: note.bodyProtobuf, resolver: resolver)
-            return result.markdown
+            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
         } catch {
-            Log.debug(
-                "Protobuf conversion failed for note \(note.id), falling back to plaintext: \(error)",
-                logger: Log.general
-            )
             return note.bodyPlaintext
         }
     }

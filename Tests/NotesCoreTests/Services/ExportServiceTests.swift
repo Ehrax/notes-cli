@@ -118,7 +118,8 @@ struct ExportServiceTests {
         let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
         let result = try await service.export(
             format: .md, outputDir: tempDir.path,
-            folder: "projects"
+            folder: "notes-cli/projects",
+            scope: .init(selectedAccount: "iCloud")
         )
 
         #expect(result.exported == 1)
@@ -144,13 +145,13 @@ struct ExportServiceTests {
             folderPath: "Notes"
         )
         let result = ExportService.markdownWithFrontmatter(
-            note: note, tags: ["tag1", "tag2"], body: "Hello"
+            note: note, body: "Hello"
         )
         #expect(result.hasPrefix("---\n"))
         #expect(result.contains("title: \"My Note\""))
         #expect(result.contains("created:"))
         #expect(result.contains("modified:"))
-        #expect(result.contains("tags: [\"tag1\", \"tag2\"]"))
+        #expect(!result.contains("tags:"))
         #expect(result.contains("---\nHello"))
     }
 
@@ -160,17 +161,17 @@ struct ExportServiceTests {
             folderPath: "Notes"
         )
         let result = ExportService.markdownWithFrontmatter(
-            note: note, tags: [], body: "Hi"
+            note: note, body: "Hi"
         )
         #expect(result.contains("title: \"He said \\\"hello\\\"\""))
     }
 
-    @Test func markdownFrontmatterOmitsTagsWhenEmpty() {
+    @Test func markdownFrontmatterNeverEmitsTags() {
         let note = makeSampleNote(
             id: "n1", title: "T", folderPath: "Notes"
         )
         let result = ExportService.markdownWithFrontmatter(
-            note: note, tags: [], body: "Body"
+            note: note, body: "Body"
         )
         #expect(!result.contains("tags:"))
     }

@@ -7,16 +7,14 @@ public func makeSampleNote(
     title: String = "Test Note",
     bodyProtobuf: Data = Data(),
     bodyPlaintext: String = "Hello",
-    folderPath: String = "Notes",
-    syncedAt: Date = Date()
+    folderPath: String = "Notes"
 ) -> Note {
     Note(
         id: id,
         title: title,
         bodyProtobuf: bodyProtobuf,
         bodyPlaintext: bodyPlaintext,
-        folderPath: folderPath,
-        syncedAt: syncedAt
+        folderPath: folderPath
     )
 }
 

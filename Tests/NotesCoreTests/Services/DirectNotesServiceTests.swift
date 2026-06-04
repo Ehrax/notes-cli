@@ -25,12 +25,8 @@ struct DirectNotesServiceTests {
         let mockWriter = MockNotesService()
         mockWriter.available = false
 
-        // We create DirectNotesService with a mock writer via the protocol bridge.
-        // Since AppleScriptWriter is not mockable directly, we test that isAvailable
-        // propagates the reader's result — if reader says false, service says false.
-        //
-        // Test: create service with real reader (whose isAvailable = NoteStore.sqlite exists or not)
-        // and confirm we get a Bool, not a crash.
+        // Create the service with the real ScriptingBridge writer and confirm availability
+        // either returns a Bool or fails with an expected macOS permission error.
         let scope = Config.NotesScope.default
         let writer = await ScriptingBridgeWriter(scope: scope)
         let service = DirectNotesService(reader: reader, writer: writer, scope: scope)

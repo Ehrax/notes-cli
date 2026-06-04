@@ -17,7 +17,7 @@ enum OutputFormatter {
     static func printNotes(_ notes: [Note], format: OutputFormat) throws {
         switch format {
         case .json:
-            try JSONOutputFormatter.print(notes)
+            try JSONOutputFormatter.print(notes.map(NoteOutput.init))
         case .table:
             TableFormatter.printNotes(notes)
         case .markdown:
@@ -28,7 +28,7 @@ enum OutputFormatter {
     static func printNote(_ note: Note, format: OutputFormat) throws {
         switch format {
         case .json:
-            try JSONOutputFormatter.print(note)
+            try JSONOutputFormatter.print(NoteOutput(note: note, body: note.bodyPlaintext))
         case .table:
             TableFormatter.printNote(note)
         case .markdown:
@@ -39,7 +39,7 @@ enum OutputFormatter {
     static func printNote(_ note: Note, bodyText: String, format: OutputFormat) throws {
         switch format {
         case .json:
-            try JSONOutputFormatter.print(NoteWithBody(note: note, body: bodyText))
+            try JSONOutputFormatter.print(NoteOutput(note: note, body: bodyText))
         case .table:
             TableFormatter.printNote(note, bodyText: bodyText)
         case .markdown:
@@ -50,7 +50,7 @@ enum OutputFormatter {
     static func printFolders(_ folders: [Folder], format: OutputFormat) throws {
         switch format {
         case .json:
-            try JSONOutputFormatter.print(folders)
+            try JSONOutputFormatter.print(folders.map(FolderOutput.init))
         case .table:
             TableFormatter.printFolders(folders)
         case .markdown:
@@ -96,23 +96,46 @@ enum OutputFormatter {
     }
 }
 
-/// Wrapper for JSON encoding a note with a custom body text (e.g. converted markdown).
-private struct NoteWithBody: Encodable {
+/// Stable JSON shape for notes. Keeps CLI output independent from internal model storage.
+private struct NoteOutput: Encodable {
     let id: String
     let title: String
-    let body: String
+    let body: String?
     let folderPath: String
+    let accountName: String?
+    let snippet: String?
     let creationDate: Date
     let modificationDate: Date
     let isLocked: Bool
 
-    init(note: Note, body: String) {
+    init(note: Note) {
+        self.init(note: note, body: nil)
+    }
+
+    init(note: Note, body: String? = nil) {
         self.id = note.id
         self.title = note.title
         self.body = body
         self.folderPath = note.folderPath
+        self.accountName = note.accountName
+        self.snippet = note.snippet
         self.creationDate = note.creationDate
         self.modificationDate = note.modificationDate
         self.isLocked = note.isLocked
+    }
+}
+
+/// Stable JSON shape for folders. There is no notes-cli protected-folder state.
+private struct FolderOutput: Encodable {
+    let id: String
+    let name: String
+    let path: String
+    let parentPath: String?
+
+    init(folder: Folder) {
+        id = folder.id
+        name = folder.name
+        path = folder.path
+        parentPath = folder.parentPath
     }
 }

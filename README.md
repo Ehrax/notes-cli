@@ -1,105 +1,135 @@
 # notes-cli
 
-A small, fast, **agent-first** CLI over Apple Notes — create, read, edit, move, search, organize, and export your notes from the terminal. Built so LLMs and humans can drive Apple Notes programmatically.
+A small, fast CLI for Apple Notes.
 
-**Apple Notes is the single source of truth.** notes-cli keeps no local copy, cache, mirror, search index, or history. Reads open Apple's live database directly (read-only); writes go straight to Apple Notes via ScriptingBridge. The only file it writes is `~/.notes-cli/config.json`.
+notes-cli lets humans and agents create, read, edit, move, search, organize, and export Apple Notes from the terminal. Apple Notes stays the source of truth: there is no notes-cli database, cache, mirror, sync step, search index, or history.
 
-macOS 13+ · Swift 6.2
+macOS 13+ · Swift 6.2 · MIT
 
-## Features
+## What It Does
 
-- **Live, read-only** access to the Notes database — no sync, no mirror, no index.
-- **Rich note creation** from HTML: headings, bold/italic/underline, lists, links — with automatic title and section spacing.
-- **Folders**: list (flat or tree), create, rename, move, delete.
-- **Search** across titles and bodies (recency-ranked, decoded on demand).
-- **Export** to Markdown or JSON.
-- **Machine-readable output** — JSON when piped, table on a TTY; clean for `jq` and scripts.
-- **AI provenance footer** — notes created via the CLI get an optional 🤖 "created by {model}" credit.
+- Reads Apple's live Notes database directly, read-only.
+- Writes through macOS ScriptingBridge, the same Apple Events permission surface used by Notes automation.
+- Searches note titles and bodies.
+- Manages folders: list, create, rename, move, and delete.
+- Exports notes to Markdown or JSON.
+- Produces script-friendly output: JSON when piped, table on a TTY, and explicit `--format json|table|markdown`.
+- Writes only one local file: `~/.notes-cli/config.json`.
 
 ## Install
+
+Install from source:
 
 ```bash
 git clone https://github.com/ehrax/notes-cli.git
 cd notes-cli
-brew install protobuf swift-protobuf   # codegen toolchain
-make setup                             # resolve deps + generate protobuf
-make install                           # build release + install to /usr/local/bin
+brew install protobuf swift-protobuf
+make setup
+make install
 ```
 
-`make install` may need `sudo`, or pick a writable prefix: `make install PREFIX=$HOME/.local` (then make sure `$PREFIX/bin` is on your `PATH`). After installing, `notes-cli` is available globally.
-
-**Permissions (macOS):**
-- **Full Disk Access** for your terminal (or the binary) — required to *read* the Notes database.
-- **Automation → Notes** — prompted on the first *write* (writes go through Apple Events).
-
-## Quick start
+`make install` installs to `/usr/local/bin` by default. Use a writable prefix if you prefer:
 
 ```bash
-notes-cli init                 # pick an Apple Notes account → ~/.notes-cli/config.json
-notes-cli init --yes           # non-interactive (for agents)
+make install PREFIX="$HOME/.local"
+```
 
+Make sure `PREFIX/bin` is on your `PATH`. See [docs/install.md](docs/install.md) for more detail.
+
+## Permissions
+
+macOS protects Apple Notes behind two permission gates:
+
+- **Full Disk Access** for your terminal or the `notes-cli` binary, required for reads.
+- **Automation -> Notes**, prompted on the first write, required for create/edit/move/delete/folder commands.
+
+Permission errors usually mean macOS has not granted one of these yet. See [docs/permissions.md](docs/permissions.md).
+
+## Quick Start
+
+```bash
+notes-cli init
 notes-cli notes list
-notes-cli notes search "swift" --limit 20
-notes-cli notes read <id>
-notes-cli notes create --title "Trip plan" --body "<h2>Day 1</h2><div>Arrive in <b>Lisbon</b>.</div>"
-notes-cli notes move <id> --folder "Archive"
-notes-cli notes delete <id>    # → Recently Deleted (~30 days)
+notes-cli notes search "project"
+notes-cli notes read <note-id>
+notes-cli notes create --title "Trip plan" --body "<p>Book flights.</p>"
+notes-cli notes move <note-id> --folder "Archive"
+notes-cli notes delete <note-id>
 
 notes-cli folders --tree
 notes-cli folder create "Projects" --parent "Work"
-notes-cli folder move "Work/Projects" --parent "Archive"
+notes-cli folder rename "Work/Projects" "Client Projects"
+notes-cli folder move "Work/Client Projects" --parent "Archive"
 
-notes-cli export --type md --output ./out
+notes-cli export --type md --output ./notes-export
 ```
 
-> **`folder move` is a composed operation.** Apple's scripting can't re-parent a folder (its `move` command deletes it), so notes-cli recreates the folder and its subfolders under the new parent, moves the notes across (note ids are preserved), then deletes the original. The notes keep their ids; the folders get new ones, and the move isn't atomic. See [ADR 0002](docs/adr/0002-scriptingbridge-write-path.md).
+Run `notes-cli --help`, `notes-cli notes --help`, or `notes-cli folder --help` for the full command surface.
 
-IDs come from the `id` field of `notes list` / `notes search`. Run `notes-cli notes --help` for the full verb list.
+## Behavior To Know
 
-### Writing formatted notes
+notes-cli is mechanism, not policy. It executes the command you gave it immediately. There are no confirmation prompts, protected folders, undo stack, action log, or local history. Deletes land in Apple's Recently Deleted folder for roughly 30 days; edits are not versioned by Apple's scripting interface.
 
-`--body` is HTML, handed straight to Apple Notes. Honored: `<h1>/<h2>/<h3>`, `<b> <i> <u>`, `<ul>/<ol>/<li>`, `<a href>`, `<br>/<div>/<p>` (CSS, classes, and colors are ignored). The CLI bakes `--title` in as the note's first line and spaces sections automatically — just write semantic HTML.
+Reads open Apple's `NoteStore.sqlite` read-only. Writes never touch that SQLite database directly; all mutations go through Notes.app via ScriptingBridge.
 
-**Heading fidelity caveat.** Apple's HTML importer doesn't store a heading *style* for `<h1>/<h2>/<h3>` — it renders them as **bold** text. So a note looks right in Notes.app, but when you read it back (`notes read`, `export`) headings come out as bold, not Markdown `#`/`##` — the level isn't recoverable because Apple never stored it. Bold, italic, underline (→ bold), strikethrough, lists, and links all round-trip. This is an Apple Notes scripting limitation (no API to set paragraph styles), not a notes-cli bug. See [ADR 0002](docs/adr/0002-scriptingbridge-write-path.md).
+Locked notes are encrypted by Apple Notes and are skipped on read.
 
-### AI footer
+## Formatted Notes
 
-Notes created via the CLI get an italic *🤖 Created by … via notes-cli* footer. Name the model with `--agent "Claude Opus 4.8"` or the `NOTES_CLI_AGENT` environment variable. Turn it off at setup with `notes-cli init --no-ai-footer`.
+`notes create --body` and `notes edit --body` accept conservative HTML:
 
-## Output
+- headings: `<h1>`, `<h2>`, `<h3>`
+- emphasis: `<b>`, `<i>`, `<u>`
+- lists: `<ul>`, `<ol>`, `<li>`
+- links: `<a href="...">`
+- structure: `<br>`, `<div>`, `<p>`
 
+Apple's importer renders heading tags as bold text rather than storing recoverable heading levels. When a note is read or exported later, those headings may come back as bold Markdown instead of `#` headings. That is a Notes scripting limitation, not a notes-cli cache issue.
+
+## Agent Footer
+
+By default, notes created through the CLI include an italic "Created by ..." footer. Set the model or agent name with:
+
+```bash
+notes-cli notes create --title "Plan" --body "<p>...</p>" --agent "Codex"
 ```
---format json|table|markdown   # default: JSON when piped, table on a TTY
---verbose                       # debug output on stderr
+
+or:
+
+```bash
+NOTES_CLI_AGENT="Codex" notes-cli notes create --title "Plan" --body "<p>...</p>"
 ```
 
-stdout carries only the command's result; human/debug chatter goes to stderr, so pipes and `jq` stay clean.
+Disable the footer during setup with:
+
+```bash
+notes-cli init --no-ai-footer
+```
+
+## Troubleshooting
+
+The common issues are macOS permissions, Notes.app not having flushed a very recent write yet, or trying to read locked notes. Start with [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Development
 
 ```bash
-make build      # debug build         make test        # all tests (serial)
-make release    # release build        make test-core   # library tests
-make run        # run the CLI          make test-cli    # CLI tests
-make proto      # regenerate protobuf   make clean       # clean artifacts
+make build          # debug build
+make release        # release build
+make test           # all tests, serial
+make test-core      # NotesCore tests
+make test-cli       # CLI tests
+make proto          # regenerate protobuf decoder
+make clean          # clean build artifacts
 ```
 
-Integration/E2E suites write to real Notes — see [AGENTS.md](AGENTS.md) for how to run them.
+Integration and E2E tests can write to real Apple Notes. Use throwaway notes/folders and clean them up afterward.
 
-## Architecture
+Architecture notes live in [docs/architecture.md](docs/architecture.md), with the load-bearing decisions in [docs/adr/](docs/adr/).
 
-```
-CLI (init · notes · folders · folder · export)
-   │  NotesServiceProtocol
-   └─ DirectNotesService
-       ├─ Reads  → NoteStoreReader (live NoteStore.sqlite, read-only) → ProtobufToMarkdown
-       └─ Writes → ScriptingBridgeWriter → NotesCoreObjC (generated Notes.h) → Notes.app
-```
+## Release Status
 
-Reads open Apple's `NoteStore.sqlite` read-only (GRDB as the SQLite driver only); bodies are gzipped protobuf decoded on demand (SwiftProtobuf). Writes go through a single ScriptingBridge path — no AppleScript, no local persistence beyond the config file.
-
-See [docs/architecture.md](docs/architecture.md), [CONTEXT.md](CONTEXT.md), and [docs/adr/](docs/adr/) for the load-bearing decisions.
+This is an early public macOS CLI. The command surface is intentionally small and direct; see [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

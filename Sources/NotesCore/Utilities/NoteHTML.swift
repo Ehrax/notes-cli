@@ -6,7 +6,7 @@ import Foundation
 /// live *inside* the body — never as a separate `name` set alongside it (that renders twice).
 /// `composeBody` bakes the title in as a leading `<h1>` so callers pass the title once and
 /// get a single, styled title line.
-enum NoteHTML {
+public enum NoteHTML {
     /// An empty paragraph — the only way to get vertical space between blocks in Apple Notes.
     private static let blank = "<div><br></div>"
 
@@ -21,6 +21,14 @@ enum NoteHTML {
             raw = contentHTML
         }
         return spaceSections(raw)
+    }
+
+    /// Converts editor/plaintext content into simple HTML before it reaches the ScriptingBridge writer.
+    public static func plainTextHTML(_ text: String) -> String {
+        text
+            .components(separatedBy: .newlines)
+            .map { "<div>\(escape($0))</div>" }
+            .joined()
     }
 
     /// Give sections room to breathe: a blank paragraph before *and* after each top-level heading

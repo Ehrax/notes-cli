@@ -68,4 +68,9 @@ struct NoteHTMLTests {
         #expect(NoteHTML.footer(model: "Ada & <Lovelace>")
             == "<div><br></div><div><i>🤖 Created by Ada &amp; &lt;Lovelace&gt; via notes-cli</i></div>")
     }
+
+    @Test("plain text editor content is escaped before HTML writes")
+    func plainTextHTML() {
+        #expect(NoteHTML.plainTextHTML("A < B\nC & D") == "<div>A &lt; B</div><div>C &amp; D</div>")
+    }
 }
