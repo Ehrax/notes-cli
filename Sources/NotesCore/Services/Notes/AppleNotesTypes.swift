@@ -70,6 +70,22 @@ public struct AppleNoteRaw: Sendable {
         self.modificationDate = modificationDate
         self.isLocked = isLocked
     }
+
+    public var body: AppleNoteBody {
+        AppleNoteBody(id: id, protobuf: bodyProtobuf, plaintext: bodyPlaintext)
+    }
+}
+
+public struct AppleNoteBody: Sendable, Equatable {
+    public let id: String
+    public let protobuf: Data
+    public let plaintext: String
+
+    public init(id: String, protobuf: Data, plaintext: String) {
+        self.id = id
+        self.protobuf = protobuf
+        self.plaintext = plaintext
+    }
 }
 
 /// Raw folder data from Apple Notes before processing into our Folder model.

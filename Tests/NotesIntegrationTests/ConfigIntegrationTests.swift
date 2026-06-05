@@ -33,15 +33,15 @@ struct ConfigIntegrationTests {
         defer { removeTempDirectory(tempDir) }
 
         var config = Config.default
-        config.defaultFormat = .json
         config.notes = .init(selectedAccount: "iCloud", rootFolder: "Projects")
+        config.aiFooterEnabled = false
 
         try await svc.saveConfig(config)
         let loaded = try await svc.loadConfig()
 
-        #expect(loaded.defaultFormat == .json)
         #expect(loaded.notes.selectedAccount == "iCloud")
         #expect(loaded.notes.rootFolder == "Projects")
+        #expect(loaded.aiFooterEnabled == false)
     }
 
     // MARK: - Default config when no file exists
@@ -52,7 +52,6 @@ struct ConfigIntegrationTests {
         defer { removeTempDirectory(tempDir) }
 
         let config = try await svc.loadConfig()
-        #expect(config.defaultFormat == nil)
         #expect(config.notes.selectedAccount == nil)
         #expect(config.notes.rootFolder == nil)
     }

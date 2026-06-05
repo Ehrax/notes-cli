@@ -62,7 +62,7 @@ struct NotesEditCommand: AsyncParsableCommand {
             guard let raw = try await notesSvc.fetchNote(id: id) else {
                 throw NotesError.noteNotFound(id: id)
             }
-            let current = try await notesSvc.renderMarkdownBody(for: raw)
+            let current = try await notesSvc.renderMarkdownBody(for: raw.body)
             newTitle = nil
             newBody = NoteHTML.plainTextHTML(try openEditor(content: current))
         }

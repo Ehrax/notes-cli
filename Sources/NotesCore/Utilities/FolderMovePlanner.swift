@@ -91,9 +91,6 @@ enum FolderMovePlanner {
     }
 
     private static func normalize(_ path: String) -> String {
-        var result = path.trimmingCharacters(in: .whitespaces)
-        while result.hasPrefix("/") { result.removeFirst() }
-        while result.hasSuffix("/") { result.removeLast() }
-        return result
+        FolderPath(path).accountRelativeValue
     }
 }

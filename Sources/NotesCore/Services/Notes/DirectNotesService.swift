@@ -53,8 +53,8 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
         return note
     }
 
-    public func renderMarkdownBody(for note: AppleNoteRaw) async throws -> String {
-        try reader.renderMarkdownBody(for: note)
+    public func renderMarkdownBody(for body: AppleNoteBody) async throws -> String {
+        try reader.renderMarkdownBody(for: body)
     }
 
     public func fetchFolders() async throws -> [AppleFolderRaw] {
@@ -163,22 +163,14 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
     ) throws -> (folders: [String], notes: [FolderMovePlanner.NoteRef]) {
         let inSubtree: (String) -> Bool = { $0 == source || $0.hasPrefix(source + "/") }
         let folders = try reader.fetchFolders()
-            .map { Self.accountRelative($0.path, account: account) }
+            .map { FolderPath($0.path).relative(to: account) }
             .filter(inSubtree)
         let notes = try reader.fetchAllNoteMetadata().compactMap { meta -> FolderMovePlanner.NoteRef? in
-            let folder = Self.accountRelative(meta.folderPath, account: account)
+            let folder = FolderPath(meta.folderPath).relative(to: account)
             guard inSubtree(folder) else { return nil }
             return FolderMovePlanner.NoteRef(id: meta.id, folder: folder)
         }
         return (folders, notes)
-    }
-
-    /// Strip the leading account-name component, yielding an account-relative path.
-    private static func accountRelative(_ path: String, account: String) -> String {
-        guard !account.isEmpty else { return path }
-        if path == account { return "" }
-        if path.hasPrefix(account + "/") { return String(path.dropFirst(account.count + 1)) }
-        return path
     }
 
     private static func mapPlanError(_ error: FolderMovePlanner.PlanError, path: String) -> NotesError {

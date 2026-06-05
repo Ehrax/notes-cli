@@ -406,9 +406,15 @@ struct CommandReadTests {
     @Test("notes list matches unqualified folder filter against scoped paths")
     func notesListMatchesUnqualifiedFolderFilter() async throws {
         let notes = MockNotesService()
-        notes.notes = [
-            makeSampleAppleNote(id: "n1", name: "Scoped", bodyPlaintext: "One", folder: "iCloud/Projects/Ideas"),
-            makeSampleAppleNote(id: "n2", name: "Other", bodyPlaintext: "Two", folder: "iCloud/Archive")
+        notes.noteMetadata = [
+            AppleNoteMetadata(
+                id: "n1", name: "Scoped", folderName: "Ideas", folderPath: "iCloud/Projects/Ideas",
+                creationDate: Date(), modificationDate: Date(), isLocked: false
+            ),
+            AppleNoteMetadata(
+                id: "n2", name: "Other", folderName: "Archive", folderPath: "iCloud/Archive",
+                creationDate: Date(), modificationDate: Date(), isLocked: false
+            )
         ]
 
         let config = try InitCommandConfigService()
@@ -420,7 +426,8 @@ struct CommandReadTests {
                 try await command.run()
             }
 
-            #expect(notes.fetchAllNotesCalled)
+            #expect(notes.fetchAllNoteMetadataCalled)
+            #expect(!notes.fetchAllNotesCalled)
             #expect(output.contains("Scoped"))
             #expect(!output.contains("Other"))
         }
@@ -556,6 +563,26 @@ struct InitCommandTests {
             Issue.record("Expected init to fail when no Apple Notes accounts are available")
         } catch let error as NotesError {
             #expect(error.errorDescription?.contains("No Apple Notes accounts found") == true)
+        }
+
+        #expect(config.savedConfig == nil)
+    }
+
+    @Test("init fails on Full Disk Access errors instead of guessing an account")
+    func initFailsOnFullDiskAccessErrors() async throws {
+        let notes = MockNotesService()
+        notes.errorToThrow = NotesError.commandFailed(
+            message: "Cannot access Apple Notes database — permission denied."
+        )
+        let config = try InitCommandConfigService()
+
+        await #expect(throws: NotesError.self) {
+            try await withOverrides(notes: notes, config: config) {
+                let command = try InitCommand.parse(["--yes", "--format", "json"])
+                try await discardStdout {
+                    try await command.run()
+                }
+            }
         }
 
         #expect(config.savedConfig == nil)

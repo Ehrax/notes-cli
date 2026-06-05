@@ -103,15 +103,15 @@ public final class NoteStoreReader: Sendable {
     }
 
     /// Render a note body to Markdown, resolving inline attachments in one read transaction.
-    public func renderMarkdownBody(for note: AppleNoteRaw) throws -> String {
-        guard !note.bodyProtobuf.isEmpty else {
-            return note.bodyPlaintext
+    public func renderMarkdownBody(for body: AppleNoteBody) throws -> String {
+        guard !body.protobuf.isEmpty else {
+            return body.plaintext
         }
 
         let db = try openDB()
         return try db.read { conn in
             let resolver = ConnectionAttachmentResolver(conn: conn)
-            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
+            return NoteBodyRenderer.markdown(for: body, resolver: resolver)
         }
     }
 
@@ -611,7 +611,8 @@ private extension NoteStoreReader {
     }
 
     /// Decode the gzipped protobuf body for a note. Returns (raw ZDATA blob, plaintext).
-    /// On failure, logs a warning and returns empty data/string.
+    /// On decode failure, keeps the raw blob so markdown rendering can still attempt its
+    /// own fallback path; only plaintext is empty.
     func decodeNoteBody(notePK: Int, conn: Database, noteID: String) -> (Data, String) {
         do {
             let blobRows = try Row.fetchAll(
@@ -623,13 +624,19 @@ private extension NoteStoreReader {
                   let data = blobRow[0] as Data? else {
                 return (Data(), "")
             }
-            let plaintext = try ProtobufToMarkdown.plaintext(from: data)
+            let plaintext: String
+            do {
+                plaintext = try ProtobufToMarkdown.plaintext(from: data)
+            } catch {
+                Log.info(
+                    "Failed to decode note plaintext for \(noteID): \(error.localizedDescription)",
+                    logger: Log.general
+                )
+                plaintext = ""
+            }
             return (data, plaintext)
         } catch {
-            Log.info(
-                "Failed to decode note body for \(noteID): \(error.localizedDescription)",
-                logger: Log.general
-            )
+            Log.info("Failed to fetch note body for \(noteID): \(error.localizedDescription)", logger: Log.general)
             return (Data(), "")
         }
     }

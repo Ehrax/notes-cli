@@ -1,6 +1,6 @@
 import Foundation
 
-/// Configuration for the notes-cli CLI safety and display settings.
+/// Configuration for notes-cli account scope and write settings.
 public struct Config: Codable, Sendable {
     public struct NotesScope: Codable, Sendable, Equatable {
         public struct ResolvedFolder: Sendable, Equatable {
@@ -20,24 +20,12 @@ public struct Config: Codable, Sendable {
         public static let `default` = NotesScope()
 
         public func scopedFolderPath(_ folderPath: String) -> String {
-            let trimmedPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedPath.isEmpty else { return trimmedPath }
-            guard let selectedAccount = normalizedSelectedAccount else { return trimmedPath }
-
-            let components = trimmedPath.split(separator: "/", omittingEmptySubsequences: true)
-            if components.first.map(String.init) == selectedAccount {
-                return trimmedPath
-            }
-
-            return selectedAccount + "/" + trimmedPath
+            FolderPath(folderPath).scoped(to: normalizedSelectedAccount).value
         }
 
         public func resolvedFolderPath(_ folderPath: String?) -> String {
-            if let folderPath {
-                let trimmedPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedPath.isEmpty {
-                    return scopedFolderPath(trimmedPath)
-                }
+            if let path = FolderPath.normalized(folderPath) {
+                return scopedFolderPath(path)
             }
 
             if let rootFolder = normalizedRootFolder {
@@ -70,34 +58,19 @@ public struct Config: Codable, Sendable {
         }
 
         public func folderPathVariants(for folderPath: String) -> Set<String> {
-            let normalizedPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !normalizedPath.isEmpty else { return [] }
-
-            let components = normalizedPath.split(separator: "/", omittingEmptySubsequences: true)
-            guard
-                components.count > 1,
-                let selectedAccount = normalizedSelectedAccount?.lowercased(),
-                components.first == Substring(selectedAccount)
-            else {
-                return [normalizedPath]
-            }
-
-            return [normalizedPath, components.dropFirst().joined(separator: "/")]
+            FolderPath(folderPath).variants(selectedAccount: normalizedSelectedAccount)
         }
 
         public func matchesFolderPath(_ folderPath: String, filter: String) -> Bool {
-            !folderPathVariants(for: folderPath).isDisjoint(with: folderPathVariants(for: filter))
+            FolderPath(folderPath).matches(filter: filter, selectedAccount: normalizedSelectedAccount)
         }
 
         public func isInSelectedAccount(_ folderPath: String) -> Bool {
-            guard let selectedAccount = normalizedSelectedAccount else { return true }
-            let normalizedPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            return normalizedPath == selectedAccount || normalizedPath.hasPrefix(selectedAccount + "/")
+            FolderPath(folderPath).isInAccount(normalizedSelectedAccount)
         }
 
         private var normalizedSelectedAccount: String? {
-            let trimmed = selectedAccount?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed?.isEmpty == false ? trimmed : nil
+            Self.normalized(selectedAccount)
         }
 
         private var normalizedRootFolder: String? {
@@ -106,13 +79,9 @@ public struct Config: Codable, Sendable {
         }
 
         private static func normalized(_ value: String?) -> String? {
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed?.isEmpty == false ? trimmed : nil
+            FolderPath.normalized(value)
         }
     }
-
-    /// Default output format for CLI display.
-    public var defaultFormat: OutputFormat?
 
     /// Apple Notes account scoping configuration.
     public var notes: NotesScope
@@ -120,24 +89,15 @@ public struct Config: Codable, Sendable {
     /// When true, `notes create` appends an italic "created by AI" footer (default on).
     public var aiFooterEnabled: Bool
 
-    public enum OutputFormat: String, Codable, Sendable {
-        case json
-        case table
-        case markdown
-    }
-
     public init(
-        defaultFormat: OutputFormat? = nil,
         notes: NotesScope = .default,
         aiFooterEnabled: Bool = true
     ) {
-        self.defaultFormat = defaultFormat
         self.notes = notes
         self.aiFooterEnabled = aiFooterEnabled
     }
 
     enum CodingKeys: String, CodingKey {
-        case defaultFormat
         case notes
         case aiFooterEnabled
     }
@@ -145,14 +105,10 @@ public struct Config: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         // Tolerant of unknown keys: legacy config.json files still load.
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        defaultFormat = try container.decodeIfPresent(OutputFormat.self, forKey: .defaultFormat)
         notes = try container.decodeIfPresent(NotesScope.self, forKey: .notes) ?? .default
         aiFooterEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiFooterEnabled) ?? true
     }
 
     /// Sensible defaults for a fresh installation.
-    public static let `default` = Config(
-        defaultFormat: nil,
-        notes: .default
-    )
+    public static let `default` = Config(notes: .default)
 }

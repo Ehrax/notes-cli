@@ -178,7 +178,7 @@ public final class ExportService: Sendable {
     ) async throws -> String {
         let folderURL = outputURL.appendingPathComponent(note.folderPath, isDirectory: true)
 
-        let body = try await notes.renderMarkdownBody(for: rawNote)
+        let body = try await notes.renderMarkdownBody(for: rawNote.body)
         let bodyWithAttachments = try await resolveAttachments(
             noteID: note.id, body: body, folderURL: folderURL
         )

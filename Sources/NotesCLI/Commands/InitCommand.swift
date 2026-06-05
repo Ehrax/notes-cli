@@ -23,8 +23,8 @@ struct InitCommand: AsyncParsableCommand {
 
         // Ensure ~/.notes-cli/ directory exists
         _ = try configSvc.notesDirectory()
-        let defaultAccount = try await resolveNotesAccountSelectionWithFallback()
-        let accounts = try await resolveNotesAccountsWithFallback(default: defaultAccount)
+        let defaultAccount = try await resolveNotesAccountSelection()
+        let accounts = try await resolveNotesAccounts()
 
         var config = Config.default
         config.aiFooterEnabled = !noAiFooter
@@ -60,33 +60,6 @@ struct InitCommand: AsyncParsableCommand {
         }
 
         return accounts[index - 1]
-    }
-
-    /// Resolves the Notes account selection, falling back to "iCloud" only when
-    /// the database is inaccessible (e.g., no Full Disk Access in test/CI environments).
-    /// Re-throws errors that indicate a genuine configuration problem (e.g., no accounts found).
-    private func resolveNotesAccountSelectionWithFallback() async throws -> String {
-        do {
-            return try await resolveNotesAccountSelection()
-        } catch let error as NotesError {
-            if case .commandFailed(let msg) = error, msg.contains("Cannot access") {
-                return "iCloud"
-            }
-            throw error
-        }
-    }
-
-    /// Resolves available Notes accounts, falling back to [default] only when
-    /// the database is inaccessible. Re-throws genuine configuration errors.
-    private func resolveNotesAccountsWithFallback(default fallback: String) async throws -> [String] {
-        do {
-            return try await resolveNotesAccounts()
-        } catch let error as NotesError {
-            if case .commandFailed(let msg) = error, msg.contains("Cannot access") {
-                return [fallback]
-            }
-            throw error
-        }
     }
 
     private func resolveNotesAccounts() async throws -> [String] {

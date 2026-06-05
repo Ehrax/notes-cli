@@ -29,6 +29,65 @@ struct NoteStoreReaderTests {
         return url
     }
 
+    private func databaseWithUndecodableNoteBody() throws -> URL {
+        let directory = try makeTempDirectory(prefix: "notes-cli-undecodable-body")
+        let url = directory.appendingPathComponent("NoteStore.sqlite")
+        let db = try DatabaseQueue(path: url.path)
+        try db.write { conn in
+            try conn.execute(sql: "CREATE TABLE z_metadata (z_uuid TEXT)")
+            try conn.execute(sql: "INSERT INTO z_metadata (z_uuid) VALUES (?)", arguments: ["STORE"])
+            try conn.execute(sql: "CREATE TABLE z_primarykey (z_ent INTEGER, z_name TEXT)")
+            try conn.execute(sql: "INSERT INTO z_primarykey (z_ent, z_name) VALUES (1, 'ICAccount')")
+            try conn.execute(sql: "INSERT INTO z_primarykey (z_ent, z_name) VALUES (2, 'ICFolder')")
+            try conn.execute(sql: "INSERT INTO z_primarykey (z_ent, z_name) VALUES (3, 'ICNote')")
+            try conn.execute(sql: """
+                CREATE TABLE ziccloudsyncingobject (
+                    z_pk INTEGER PRIMARY KEY,
+                    z_ent INTEGER,
+                    zname TEXT,
+                    zidentifier TEXT,
+                    ztitle2 TEXT,
+                    zparent INTEGER,
+                    zowner INTEGER,
+                    zfoldertype INTEGER,
+                    ztitle1 TEXT,
+                    zfolder INTEGER,
+                    zcreationdate1 REAL,
+                    zcreationdate2 REAL,
+                    zcreationdate3 REAL,
+                    zmodificationdate1 REAL,
+                    zispasswordprotected INTEGER,
+                    zsnippet TEXT,
+                    zmarkedfordeletion INTEGER
+                )
+                """)
+            try conn.execute(
+                sql: "INSERT INTO ziccloudsyncingobject (z_pk, z_ent, zname, zidentifier) VALUES (10, 1, 'iCloud', 'acct')"
+            )
+            try conn.execute(
+                sql: """
+                    INSERT INTO ziccloudsyncingobject
+                    (z_pk, z_ent, zidentifier, ztitle2, zowner, zfoldertype, zmarkedfordeletion)
+                    VALUES (20, 2, 'folder', 'Notes', 10, 0, 0)
+                    """
+            )
+            try conn.execute(
+                sql: """
+                    INSERT INTO ziccloudsyncingobject
+                    (z_pk, z_ent, zidentifier, ztitle1, zfolder, zcreationdate1, zmodificationdate1,
+                     zispasswordprotected, zmarkedfordeletion)
+                    VALUES (30, 3, 'note', 'Broken Body', 20, 0, 0, 0, 0)
+                    """
+            )
+            try conn.execute(sql: "CREATE TABLE zicnotedata (znote INTEGER, zdata BLOB)")
+            try conn.execute(
+                sql: "INSERT INTO zicnotedata (znote, zdata) VALUES (?, ?)",
+                arguments: [30, Data([0x62, 0x61, 0x64])]
+            )
+        }
+        return url
+    }
+
     // MARK: - isAvailable
 
     @Test("isAvailable returns false when NoteStore.sqlite does not exist")
@@ -83,6 +142,19 @@ struct NoteStoreReaderTests {
         #expect(throws: NotesError.self) {
             try reader.fetchAllNotes()
         }
+    }
+
+    @Test("fetchAllNotes keeps the raw body blob when plaintext decoding fails")
+    func fetchAllNotesKeepsRawBodyWhenPlaintextDecodeFails() throws {
+        let url = try databaseWithUndecodableNoteBody()
+        defer { removeTempDirectory(url.deletingLastPathComponent()) }
+        let reader = NoteStoreReader(databasePath: url.path)
+
+        let note = try #require(reader.fetchAllNotes().first)
+
+        #expect(note.name == "Broken Body")
+        #expect(note.bodyProtobuf == Data([0x62, 0x61, 0x64]))
+        #expect(note.bodyPlaintext == "")
     }
 
     // MARK: - Live read (no copy)

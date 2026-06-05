@@ -10,7 +10,6 @@ struct ConfigServiceTests {
     @Test("Default config has expected values")
     func defaultConfigValues() {
         let config = Config.default
-        #expect(config.defaultFormat == nil)
         #expect(config.notes.selectedAccount == nil)
         #expect(config.notes.rootFolder == nil)
     }
@@ -22,32 +21,18 @@ struct ConfigServiceTests {
         let sut = ConfigService()
 
         var config = Config.default
-        config.defaultFormat = .json
         config.notes = .init(selectedAccount: "iCloud", rootFolder: "Projects")
+        config.aiFooterEnabled = false
 
         try await sut.saveConfig(config)
         let loaded = try await sut.loadConfig()
 
-        #expect(loaded.defaultFormat == .json)
         #expect(loaded.notes.selectedAccount == "iCloud")
         #expect(loaded.notes.rootFolder == "Projects")
+        #expect(loaded.aiFooterEnabled == false)
 
         // Restore default config to not pollute the environment
         try await sut.saveConfig(.default)
-    }
-
-    // MARK: - OutputFormat
-
-    @Test("OutputFormat encodes and decodes correctly")
-    func outputFormatRoundTrip() throws {
-        let formats: [Config.OutputFormat] = [.json, .table, .markdown]
-        let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        for format in formats {
-            let data = try encoder.encode(format)
-            let decoded = try decoder.decode(Config.OutputFormat.self, from: data)
-            #expect(decoded == format)
-        }
     }
 
     @Test("Config decoding ignores legacy keys and keeps notes-scope defaults")
@@ -64,7 +49,6 @@ struct ConfigServiceTests {
 
         let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
 
-        #expect(config.defaultFormat == .json)
         #expect(config.notes.selectedAccount == nil)
         #expect(config.notes.rootFolder == nil)
     }

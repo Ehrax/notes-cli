@@ -22,7 +22,7 @@ struct NotesReadCommand: AsyncParsableCommand {
         }
 
         let note = Note(from: raw)
-        let bodyText = try await notesSvc.renderMarkdownBody(for: raw)
+        let bodyText = try await notesSvc.renderMarkdownBody(for: raw.body)
         try OutputFormatter.printNote(note, bodyText: bodyText, format: global.resolvedFormat)
     }
 }

@@ -47,6 +47,19 @@ public struct Note: Codable, Sendable, Equatable {
             isLocked: raw.isLocked
         )
     }
+
+    public init(from metadata: AppleNoteMetadata) {
+        self.init(
+            id: metadata.id,
+            title: metadata.name,
+            bodyPlaintext: "",
+            folderPath: metadata.folderPath,
+            accountName: metadata.accountName,
+            creationDate: metadata.creationDate,
+            modificationDate: metadata.modificationDate,
+            isLocked: metadata.isLocked
+        )
+    }
 }
 
 extension Note: FetchableRecord {}

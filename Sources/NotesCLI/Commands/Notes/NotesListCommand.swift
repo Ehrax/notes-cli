@@ -19,7 +19,7 @@ struct NotesListCommand: AsyncParsableCommand {
         let configSvc = try await container.config
         let config = try await configSvc.loadConfig()
 
-        var raw = try await notesSvc.fetchAllNotes()
+        var raw = try await notesSvc.fetchAllNoteMetadata()
         if let folder {
             raw = raw.filter { note in
                 config.notes.matchesFolderPath(note.folderPath, filter: folder)
