@@ -10,7 +10,6 @@ struct NoteTests {
         let note = Note(
             id: "enc-1",
             title: "Encode Me",
-            bodyProtobuf: Data("**Body**".utf8),
             bodyPlaintext: "Body",
             folderPath: "/Tests",
             isLocked: true
@@ -46,5 +45,23 @@ struct NoteTests {
         #expect(note.title == "Raw")
         #expect(note.folderPath == "iCloud/Notes")
         #expect(note.bodyPlaintext == "Body")
+    }
+
+    @Test("Notes scope resolves nil folder to configured root folder")
+    func notesScopeResolvesNilFolderToRootFolder() {
+        let scope = Config.NotesScope(selectedAccount: "iCloud", rootFolder: "notes-cli")
+
+        #expect(scope.resolvedFolderPath(nil) == "iCloud/notes-cli")
+        #expect(scope.resolvedFolder(nil).account == "iCloud")
+        #expect(scope.resolvedFolder(nil).accountRelativePath == "notes-cli")
+    }
+
+    @Test("Notes scope strips a supplied default account when no account is configured")
+    func notesScopeUsesDefaultAccountForResolvedFolder() {
+        let scope = Config.NotesScope()
+
+        #expect(scope.resolvedFolder("iCloud/Projects", defaultAccount: "iCloud").account == "iCloud")
+        #expect(scope.resolvedFolder("iCloud/Projects", defaultAccount: "iCloud").accountRelativePath == "Projects")
+        #expect(scope.resolvedFolder("Projects", defaultAccount: "iCloud").accountRelativePath == "Projects")
     }
 }

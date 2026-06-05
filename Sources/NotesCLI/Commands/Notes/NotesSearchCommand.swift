@@ -22,15 +22,8 @@ struct NotesSearchCommand: AsyncParsableCommand {
         global.configureLogging()
         let container = ServiceContainer.shared
         let notesSvc = try await container.notes
-        let configSvc = try await container.config
-        let config = try await configSvc.loadConfig()
 
-        var raw = try await notesSvc.searchNotes(query: query, limit: limit)
-        if let folder {
-            raw = raw.filter { note in
-                config.notes.matchesFolderPath(note.folderPath, filter: folder)
-            }
-        }
+        let raw = try await notesSvc.searchNotes(query: query, limit: limit, folder: folder)
 
         let results = raw.map { Note(from: $0) }
         try OutputFormatter.printNotes(results, format: global.resolvedFormat)

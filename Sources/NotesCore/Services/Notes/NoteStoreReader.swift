@@ -40,8 +40,8 @@ public final class NoteStoreReader: Sendable {
     public func fetchAccountNames() throws -> [String] {
         let db = try openDB()
         return try db.read { conn in
-            let entityTypes = try loadEntityTypes(conn)
-            guard let accountEnt = entityTypes["ICAccount"] else { return [] }
+            let entityTypes = try requiredEntityTypes(conn, names: ["ICAccount"])
+            let accountEnt = try entityType(named: "ICAccount", in: entityTypes)
             return try Row.fetchAll(
                 conn,
                 sql: "SELECT zname FROM ziccloudsyncingobject WHERE z_ent = ?",
@@ -59,9 +59,9 @@ public final class NoteStoreReader: Sendable {
     public func fetchFolders() throws -> [AppleFolderRaw] {
         let db = try openDB()
         return try db.read { conn in
-            let entityTypes = try loadEntityTypes(conn)
-            guard let folderEnt = entityTypes["ICFolder"],
-                  let accountEnt = entityTypes["ICAccount"] else { return [] }
+            let entityTypes = try requiredEntityTypes(conn, names: ["ICFolder", "ICAccount"])
+            let folderEnt = try entityType(named: "ICFolder", in: entityTypes)
+            let accountEnt = try entityType(named: "ICAccount", in: entityTypes)
             let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
             let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
             return buildAppleFolderRaws(rawFolders, accounts: accounts)
@@ -111,7 +111,7 @@ public final class NoteStoreReader: Sendable {
         let db = try openDB()
         return try db.read { conn in
             let resolver = ConnectionAttachmentResolver(conn: conn)
-            return NoteBodyRenderer.markdown(for: Note(from: note), resolver: resolver)
+            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
         }
     }
 
@@ -149,11 +149,13 @@ public final class NoteStoreReader: Sendable {
     public func fetchAttachments(noteID: String) throws -> [NoteAttachment] {
         let db = try openDB()
         return try db.read { conn in
-            let entityTypes = try loadEntityTypes(conn)
-            guard let noteEnt = entityTypes["ICNote"],
-                  let attachEnt = entityTypes["ICAttachment"],
-                  let mediaEnt = entityTypes["ICMedia"],
-                  let accountEnt = entityTypes["ICAccount"] else { return [] }
+            let entityTypes = try requiredEntityTypes(
+                conn, names: ["ICNote", "ICAttachment", "ICMedia", "ICAccount"]
+            )
+            let noteEnt = try entityType(named: "ICNote", in: entityTypes)
+            let attachEnt = try entityType(named: "ICAttachment", in: entityTypes)
+            let mediaEnt = try entityType(named: "ICMedia", in: entityTypes)
+            let accountEnt = try entityType(named: "ICAccount", in: entityTypes)
 
             let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
 
@@ -263,6 +265,22 @@ private extension NoteStoreReader {
             }
         }
         return result
+    }
+
+    func requiredEntityTypes(_ db: Database, names: [String]) throws -> [String: Int64] {
+        let entityTypes = try loadEntityTypes(db)
+        let missing = names.filter { entityTypes[$0] == nil }
+        guard missing.isEmpty else {
+            throw NotesError.unsupportedNoteStoreSchema(missingEntities: missing)
+        }
+        return entityTypes
+    }
+
+    func entityType(named name: String, in entityTypes: [String: Int64]) throws -> Int64 {
+        guard let value = entityTypes[name] else {
+            throw NotesError.unsupportedNoteStoreSchema(missingEntities: [name])
+        }
+        return value
     }
 }
 
@@ -455,10 +473,10 @@ private extension NoteStoreReader {
     }
 
     func makeNoteReadContext(_ conn: Database) throws -> NoteReadContext? {
-        let entityTypes = try loadEntityTypes(conn)
-        guard let noteEnt = entityTypes["ICNote"],
-              let folderEnt = entityTypes["ICFolder"],
-              let accountEnt = entityTypes["ICAccount"] else { return nil }
+        let entityTypes = try requiredEntityTypes(conn, names: ["ICNote", "ICFolder", "ICAccount"])
+        let noteEnt = try entityType(named: "ICNote", in: entityTypes)
+        let folderEnt = try entityType(named: "ICFolder", in: entityTypes)
+        let accountEnt = try entityType(named: "ICAccount", in: entityTypes)
 
         let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
         let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
@@ -605,7 +623,7 @@ private extension NoteStoreReader {
                   let data = blobRow[0] as Data? else {
                 return (Data(), "")
             }
-            let plaintext = ProtobufToMarkdown.extractPlaintext(from: data)
+            let plaintext = try ProtobufToMarkdown.plaintext(from: data)
             return (data, plaintext)
         } catch {
             Log.info(

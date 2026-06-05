@@ -6,6 +6,7 @@ public enum NotesError: Error, LocalizedError, Sendable {
     case folderNotFound(path: String)
     case databaseCorrupted(underlying: Error)
     case databaseMissing
+    case unsupportedNoteStoreSchema(missingEntities: [String])
     case scriptingBridgeError(message: String, number: Int?)
     case encodingFailure(reason: String)
     case commandFailed(message: String)
@@ -22,6 +23,8 @@ public enum NotesError: Error, LocalizedError, Sendable {
             return "Database is corrupted: \(underlying.localizedDescription)"
         case .databaseMissing:
             return "Database file is missing."
+        case .unsupportedNoteStoreSchema(let missingEntities):
+            return "Unsupported Apple Notes database schema; missing entities: \(missingEntities.joined(separator: ", "))"
         case .scriptingBridgeError(let message, let number):
             if let number {
                 return "Notes write error (\(number)): \(message)"
@@ -38,7 +41,7 @@ public enum NotesError: Error, LocalizedError, Sendable {
         switch self {
         case .noteNotFound, .folderNotFound:
             return 1
-        case .appleNotesUnavailable, .databaseCorrupted, .databaseMissing,
+        case .appleNotesUnavailable, .databaseCorrupted, .databaseMissing, .unsupportedNoteStoreSchema,
              .scriptingBridgeError, .encodingFailure:
             return 2
         case .commandFailed:

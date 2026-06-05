@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import NotesCore
 import NotesTestSupport
@@ -16,6 +17,16 @@ struct NoteStoreReaderTests {
     /// A path that does not point at a readable SQLite database.
     private func bogusDBPath() -> String {
         "/tmp/notes-cli-test-nonexistent-\(UUID().uuidString)/NoteStore.sqlite"
+    }
+
+    private func databaseWithMissingEntities() throws -> URL {
+        let directory = try makeTempDirectory(prefix: "notes-cli-schema")
+        let url = directory.appendingPathComponent("NoteStore.sqlite")
+        let db = try DatabaseQueue(path: url.path)
+        try db.write { conn in
+            try conn.execute(sql: "CREATE TABLE z_primarykey (z_ent INTEGER, z_name TEXT)")
+        }
+        return url
     }
 
     // MARK: - isAvailable
@@ -60,6 +71,17 @@ struct NoteStoreReaderTests {
         let reader = NoteStoreReader(databasePath: bogusDBPath())
         #expect(throws: (any Error).self) {
             try reader.fetchAttachments(noteID: "test-note-id")
+        }
+    }
+
+    @Test("fetchAllNotes throws when required NoteStore entities are missing")
+    func fetchAllNotesThrowsForMissingEntities() throws {
+        let url = try databaseWithMissingEntities()
+        defer { removeTempDirectory(url.deletingLastPathComponent()) }
+        let reader = NoteStoreReader(databasePath: url.path)
+
+        #expect(throws: NotesError.self) {
+            try reader.fetchAllNotes()
         }
     }
 

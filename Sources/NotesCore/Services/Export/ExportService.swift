@@ -3,12 +3,14 @@ import Foundation
 /// Exports notes from the live Apple Notes database to files on disk.
 public final class ExportService: Sendable {
     private let notes: any NotesServiceProtocol
+    private let appleNotesRootURL: URL
 
     private static let appleNotesRoot =
         "Library/Group Containers/group.com.apple.notes"
 
-    public init(notes: any NotesServiceProtocol) {
+    public init(notes: any NotesServiceProtocol, appleNotesRootURL: URL? = nil) {
         self.notes = notes
+        self.appleNotesRootURL = appleNotesRootURL ?? Self.defaultAppleNotesRootURL()
     }
 
     // MARK: - Public
@@ -223,7 +225,6 @@ public final class ExportService: Sendable {
             try fm.createDirectory(at: assetsURL, withIntermediateDirectories: true)
         }
 
-        let notesRoot = appleNotesRootPath()
         var result = body
 
         for attachment in attachments {
@@ -235,15 +236,15 @@ public final class ExportService: Sendable {
                 continue
             }
 
-            let sourcePath = "\(notesRoot)/\(attachment.relativePath)"
-            let destURL = assetsURL.appendingPathComponent(filename)
+            let sourceURL = appleNotesRootURL.appendingPathComponent(attachment.relativePath)
+            let assetFilename = Self.assetFilename(for: attachment, originalFilename: filename)
+            let destURL = assetsURL.appendingPathComponent(assetFilename)
 
             do {
-                if fm.fileExists(atPath: destURL.path) {
-                    try fm.removeItem(at: destURL)
+                if !fm.fileExists(atPath: destURL.path) {
+                    try fm.copyItem(at: sourceURL, to: destURL)
                 }
-                try fm.copyItem(atPath: sourcePath, toPath: destURL.path)
-                result = result.replacingOccurrences(of: placeholder, with: "![[assets/\(filename)]]")
+                result = result.replacingOccurrences(of: placeholder, with: "![[assets/\(assetFilename)]]")
             } catch {
                 Self.progress("Warning: could not copy attachment \(filename): \(error.localizedDescription)")
                 result = result.replacingOccurrences(of: placeholder, with: "<!-- missing attachment: \(filename) -->")
@@ -253,9 +254,13 @@ public final class ExportService: Sendable {
         return result
     }
 
-    private func appleNotesRootPath() -> String {
+    private static func defaultAppleNotesRootURL() -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/\(Self.appleNotesRoot)"
+        return URL(fileURLWithPath: "\(home)/\(Self.appleNotesRoot)", isDirectory: true)
+    }
+
+    private static func assetFilename(for attachment: NoteAttachment, originalFilename: String) -> String {
+        "\(attachment.id.fileSafe)-\(originalFilename.fileSafe)"
     }
 
     private static func progress(_ message: String) {

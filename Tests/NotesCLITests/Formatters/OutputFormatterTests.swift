@@ -30,7 +30,6 @@ struct OutputFormatterTests {
         Note(
             id: "note-1",
             title: "First Note",
-            bodyProtobuf: Data(),
             bodyPlaintext: "Hello world",
             folderPath: "Notes",
             creationDate: Date(timeIntervalSince1970: 1_700_000_000),
@@ -39,7 +38,6 @@ struct OutputFormatterTests {
         Note(
             id: "note-2",
             title: "Second Note",
-            bodyProtobuf: Data(),
             bodyPlaintext: "Goodbye",
             folderPath: "Work",
             creationDate: Date(timeIntervalSince1970: 1_700_100_000),

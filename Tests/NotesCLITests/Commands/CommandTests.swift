@@ -429,6 +429,7 @@ struct CommandReadTests {
     @Test("notes search matches unqualified folder filter against scoped paths")
     func notesSearchMatchesUnqualifiedFolderFilter() async throws {
         let notes = MockNotesService()
+        notes.scopedAccountName = "iCloud"
         notes.notes = [
             makeSampleAppleNote(id: "n1", name: "Scoped Search", bodyPlaintext: "Hello", folder: "iCloud/Projects/Ideas"),
             makeSampleAppleNote(id: "n2", name: "Wrong Folder", bodyPlaintext: "Hello", folder: "iCloud/Archive")
@@ -446,6 +447,36 @@ struct CommandReadTests {
             #expect(notes.searchNotesCalled)
             #expect(output.contains("Scoped Search"))
             #expect(!output.contains("Wrong Folder"))
+        }
+    }
+
+    @Test("notes search filters by folder before applying the limit")
+    func notesSearchFiltersBeforeLimit() async throws {
+        let notes = MockNotesService()
+        notes.scopedAccountName = "iCloud"
+        let now = Date()
+        notes.notes = [
+            makeSampleAppleNote(
+                id: "outside", name: "Outside", bodyPlaintext: "Needle",
+                folder: "iCloud/Archive", modificationDate: now.addingTimeInterval(100)
+            ),
+            makeSampleAppleNote(
+                id: "inside", name: "Inside", bodyPlaintext: "Needle",
+                folder: "iCloud/Projects", modificationDate: now
+            ),
+        ]
+
+        let config = try InitCommandConfigService()
+        config.loadedConfig = Config(notes: .init(selectedAccount: "iCloud"))
+
+        try await withOverrides(notes: notes, config: config) {
+            let command = try NotesSearchCommand.parse(["Needle", "--folder", "Projects", "--limit", "1", "--format", "json"])
+            let output = try await captureStdout {
+                try await command.run()
+            }
+
+            #expect(output.contains("Inside"))
+            #expect(!output.contains("Outside"))
         }
     }
 }

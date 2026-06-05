@@ -5,14 +5,12 @@ import NotesCore
 public func makeSampleNote(
     id: String = "note-1",
     title: String = "Test Note",
-    bodyProtobuf: Data = Data(),
     bodyPlaintext: String = "Hello",
     folderPath: String = "Notes"
 ) -> Note {
     Note(
         id: id,
         title: title,
-        bodyProtobuf: bodyProtobuf,
         bodyPlaintext: bodyPlaintext,
         folderPath: folderPath
     )

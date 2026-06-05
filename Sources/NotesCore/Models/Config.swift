@@ -3,6 +3,12 @@ import Foundation
 /// Configuration for the notes-cli CLI safety and display settings.
 public struct Config: Codable, Sendable {
     public struct NotesScope: Codable, Sendable, Equatable {
+        public struct ResolvedFolder: Sendable, Equatable {
+            public let account: String?
+            public let fullPath: String
+            public let accountRelativePath: String
+        }
+
         public var selectedAccount: String?
         public var rootFolder: String?
 
@@ -41,6 +47,28 @@ public struct Config: Codable, Sendable {
             return normalizedSelectedAccount ?? ""
         }
 
+        public func resolvedFolder(_ folderPath: String?) -> ResolvedFolder {
+            resolvedFolder(folderPath, defaultAccount: nil)
+        }
+
+        public func resolvedFolder(_ folderPath: String?, defaultAccount: String?) -> ResolvedFolder {
+            let fullPath = resolvedFolderPath(folderPath)
+            guard let account = normalizedSelectedAccount ?? Self.normalized(defaultAccount) else {
+                return ResolvedFolder(account: nil, fullPath: fullPath, accountRelativePath: fullPath)
+            }
+            if fullPath == account {
+                return ResolvedFolder(account: account, fullPath: fullPath, accountRelativePath: "")
+            }
+            if fullPath.hasPrefix(account + "/") {
+                return ResolvedFolder(
+                    account: account,
+                    fullPath: fullPath,
+                    accountRelativePath: String(fullPath.dropFirst(account.count + 1))
+                )
+            }
+            return ResolvedFolder(account: account, fullPath: fullPath, accountRelativePath: fullPath)
+        }
+
         public func folderPathVariants(for folderPath: String) -> Set<String> {
             let normalizedPath = folderPath.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !normalizedPath.isEmpty else { return [] }
@@ -73,7 +101,12 @@ public struct Config: Codable, Sendable {
         }
 
         private var normalizedRootFolder: String? {
-            let trimmed = rootFolder?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = Self.normalized(rootFolder)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+
+        private static func normalized(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed?.isEmpty == false ? trimmed : nil
         }
     }

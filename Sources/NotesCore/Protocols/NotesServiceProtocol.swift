@@ -8,7 +8,7 @@ public protocol NotesServiceProtocol: Sendable {
     func resolvedFolderPath(_ folderPath: String?) -> String
     func fetchAllNoteMetadata() async throws -> [AppleNoteMetadata]
     func fetchAllNotes() async throws -> [AppleNoteRaw]
-    func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw]
+    func searchNotes(query: String, limit: Int, folder: String?) async throws -> [AppleNoteRaw]
     func fetchNote(id: String) async throws -> AppleNoteRaw?
     func renderMarkdownBody(for note: AppleNoteRaw) async throws -> String
     func createNote(title: String, bodyHTML: String, folderName: String, agent: String?) async throws -> String

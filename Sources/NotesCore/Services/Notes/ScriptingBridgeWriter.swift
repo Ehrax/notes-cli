@@ -58,7 +58,7 @@ public final class ScriptingBridgeWriter: Sendable {
     }
 
     public func createFolder(name: String, parentName: String?) throws {
-        let parent = parentName.map(resolved) ?? (account: scope.selectedAccount, path: "")
+        let parent = resolved(parentName)
         var error: NSError?
         if !NotesSBCreateFolder(parent.account, parent.path.isEmpty ? nil : parent.path, name, &error) {
             throw Self.mapError(error)
@@ -95,13 +95,8 @@ public final class ScriptingBridgeWriter: Sendable {
 
     /// Resolve a user folder argument into (account name, account-relative "/"-path).
     private func resolved(_ folderName: String?) -> (account: String?, path: String) {
-        let full = scope.resolvedFolderPath(folderName)
-        guard let account = scope.selectedAccount, !account.isEmpty else {
-            return (nil, full)
-        }
-        if full == account { return (account, "") }
-        if full.hasPrefix(account + "/") { return (account, String(full.dropFirst(account.count + 1))) }
-        return (account, full)
+        let folder = scope.resolvedFolder(folderName)
+        return (folder.account, folder.accountRelativePath)
     }
 
     private static func mapError(_ error: NSError?, noteID: String? = nil) -> NotesError {

@@ -6,6 +6,7 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     public var noteMetadata: [AppleNoteMetadata] = []
     public var notes: [AppleNoteRaw] = []
     public var folders: [AppleFolderRaw] = []
+    public var attachmentsByNoteID: [String: [NoteAttachment]] = [:]
     public var accountNames: [String] = []
     public var defaultAccountName: String?
     public var scopedAccountName: String?
@@ -122,12 +123,12 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
         }
     }
 
-    public func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw] {
+    public func searchNotes(query: String, limit: Int, folder: String?) async throws -> [AppleNoteRaw] {
         searchNotesCalled = true
         lastSearchQuery = query
         lastSearchLimit = limit
         if let error = errorToThrow { throw error }
-        return NoteSearch.rank(notes: notes, query: query, limit: limit)
+        return NoteSearch.rank(notes: notes, query: query, limit: limit, folder: folder, scope: mockScope)
     }
 
     public func fetchNote(id: String) async throws -> AppleNoteRaw? {
@@ -216,17 +217,20 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
 
     public func fetchAttachments(noteID: String) async throws -> [NoteAttachment] {
         if let error = errorToThrow { throw error }
-        return []
+        return attachmentsByNoteID[noteID] ?? []
     }
 
     public func createFolder(name: String, parentName: String?) async throws {
         createFolderCalled = true
         lastCreatedFolderName = name
-        let resolvedParentName = parentName.map { resolvedFolderPath($0) }
-        lastCreatedFolderParent = resolvedParentName
+        let resolvedParentName = parentName.map { resolvedFolderPath($0) } ?? resolvedFolderPath(nil)
+        lastCreatedFolderParent = resolvedParentName.isEmpty ? nil : resolvedParentName
         if let error = errorToThrow { throw error }
-        let path = resolvedParentName.map { "\($0)/\(name)" } ?? scopedFolderPath(name)
-        folders.append(AppleFolderRaw(id: "x-coredata://mock/\(UUID().uuidString)", name: name, path: path, parentPath: resolvedParentName))
+        let path = resolvedParentName.isEmpty ? scopedFolderPath(name) : "\(resolvedParentName)/\(name)"
+        folders.append(AppleFolderRaw(
+            id: "x-coredata://mock/\(UUID().uuidString)",
+            name: name, path: path, parentPath: lastCreatedFolderParent
+        ))
     }
 
     public func renameFolder(path: String, newName: String) async throws {
@@ -264,5 +268,9 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
     private var normalizedScopedAccountName: String? {
         let trimmed = (scopedAccountName ?? defaultAccountName)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private var mockScope: Config.NotesScope {
+        Config.NotesScope(selectedAccount: normalizedScopedAccountName, rootFolder: rootFolderPath)
     }
 }

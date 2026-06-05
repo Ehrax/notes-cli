@@ -105,6 +105,83 @@ struct ExportServiceTests {
         #expect(sameFiles.contains { $0.hasSuffix("-same-2.md") })
     }
 
+    @Test func keepsSameNamedAttachmentsSeparateInOneFolder() async throws {
+        let mock = MockNotesService()
+        mock.notes = [
+            makeSampleAppleNote(
+                id: "n1", name: "First",
+                bodyPlaintext: "One\n![[attachment:attachment-one:public.png]]",
+                folder: "Notes"
+            ),
+            makeSampleAppleNote(
+                id: "n2", name: "Second",
+                bodyPlaintext: "Two\n![[attachment:attachment-two:public.png]]",
+                folder: "Notes"
+            ),
+        ]
+
+        let mediaRoot = try makeTempDirectory(prefix: "notes-cli-media")
+        let outputRoot = try makeTempDirectory()
+        defer {
+            removeTempDirectory(mediaRoot)
+            removeTempDirectory(outputRoot)
+        }
+
+        let firstSource = mediaRoot.appendingPathComponent("first/image.png")
+        let secondSource = mediaRoot.appendingPathComponent("second/image.png")
+        try FileManager.default.createDirectory(
+            at: firstSource.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: secondSource.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("first".utf8).write(to: firstSource)
+        try Data("second".utf8).write(to: secondSource)
+
+        mock.attachmentsByNoteID = [
+            "n1": [
+                NoteAttachment(
+                    id: "attachment-one", noteID: "n1", filename: "image.png",
+                    typeUTI: "public.png", relativePath: "first/image.png"
+                ),
+            ],
+            "n2": [
+                NoteAttachment(
+                    id: "attachment-two", noteID: "n2", filename: "image.png",
+                    typeUTI: "public.png", relativePath: "second/image.png"
+                ),
+            ],
+        ]
+
+        let service = ExportService(notes: mock, appleNotesRootURL: mediaRoot)
+        let result = try await service.export(format: .md, outputDir: outputRoot.path)
+
+        #expect(result.exported == 2)
+        let notesDir = outputRoot.appendingPathComponent("Notes")
+        let assetsDir = notesDir.appendingPathComponent("assets")
+        let assets = try FileManager.default.contentsOfDirectory(atPath: assetsDir.path).sorted()
+        #expect(assets == ["attachment-one-image.png", "attachment-two-image.png"])
+
+        let firstMarkdown = try String(
+            contentsOf: notesDir.appendingPathComponent(
+                try #require(try FileManager.default.contentsOfDirectory(atPath: notesDir.path)
+                    .first { $0.hasSuffix("-first.md") })
+            ),
+            encoding: .utf8
+        )
+        let secondMarkdown = try String(
+            contentsOf: notesDir.appendingPathComponent(
+                try #require(try FileManager.default.contentsOfDirectory(atPath: notesDir.path)
+                    .first { $0.hasSuffix("-second.md") })
+            ),
+            encoding: .utf8
+        )
+        #expect(firstMarkdown.contains("![[assets/attachment-one-image.png]]"))
+        #expect(secondMarkdown.contains("![[assets/attachment-two-image.png]]"))
+        #expect(try Data(contentsOf: assetsDir.appendingPathComponent("attachment-one-image.png")) == Data("first".utf8))
+        #expect(try Data(contentsOf: assetsDir.appendingPathComponent("attachment-two-image.png")) == Data("second".utf8))
+    }
+
     @Test func filtersByFolder() async throws {
         let mock = MockNotesService()
         mock.notes = [

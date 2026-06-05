@@ -44,8 +44,8 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
             .filter(isVisible)
     }
 
-    public func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw] {
-        NoteSearch.rank(notes: try await fetchAllNotes(), query: query, limit: limit)
+    public func searchNotes(query: String, limit: Int, folder: String? = nil) async throws -> [AppleNoteRaw] {
+        NoteSearch.rank(notes: try await fetchAllNotes(), query: query, limit: limit, folder: folder, scope: scope)
     }
 
     public func fetchNote(id: String) async throws -> AppleNoteRaw? {
@@ -125,8 +125,8 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
     /// notes are never lost.
     public func moveFolder(path: String, toParent parentPath: String?) async throws {
         let account = try resolveAccountName()
-        let source = Self.accountRelative(scope.resolvedFolderPath(path), account: account)
-        let destParent = parentPath.map { Self.accountRelative(scope.resolvedFolderPath($0), account: account) }
+        let source = scope.resolvedFolder(path, defaultAccount: account).accountRelativePath
+        let destParent = parentPath.map { scope.resolvedFolder($0, defaultAccount: account).accountRelativePath }
 
         let subtree = try gatherSubtree(source: source, account: account)
         let plan: FolderMovePlanner.Plan

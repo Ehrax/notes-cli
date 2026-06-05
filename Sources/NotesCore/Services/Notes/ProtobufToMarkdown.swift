@@ -90,14 +90,14 @@ public enum ProtobufToMarkdown {
 
     /// Lightweight plaintext extraction: gunzip + protobuf decode + read noteText.
     /// No markdown conversion and no attachment resolution.
+    public static func plaintext(from data: Data) throws -> String {
+        let decompressed = try Gzip.decompress(data)
+        let proto = try Ciofecaforensics_NoteStoreProto(serializedBytes: decompressed)
+        return proto.document.note.noteText
+    }
+
     public static func extractPlaintext(from data: Data) -> String {
-        do {
-            let decompressed = try Gzip.decompress(data)
-            let proto = try Ciofecaforensics_NoteStoreProto(serializedBytes: decompressed)
-            return proto.document.note.noteText
-        } catch {
-            return ""
-        }
+        (try? plaintext(from: data)) ?? ""
     }
 
 }
@@ -196,76 +196,7 @@ private struct MarkdownMapper {
             output += "```\n"
         }
 
-        return postProcess(output)
-    }
-
-    // MARK: - Post-Processing
-
-    private func postProcess(_ output: String) -> String {
-        var result = output
-        // Unicode normalization
-        result = result.replacingOccurrences(of: "\u{2028}", with: "\n")
-        result = result.replacingOccurrences(of: "\u{2029}", with: "\n")
-        // Bold cleanup
-        result = result.replacingOccurrences(of: "****", with: "")
-        result = result.replacingOccurrences(
-            of: #"\*\*\s+\*\*"#, with: " ", options: .regularExpression
-        )
-        // Blank line before headings
-        result = result.replacingOccurrences(
-            of: #"(?m)([^\n])\n(#{1,3} )"#, with: "$1\n\n$2", options: .regularExpression
-        )
-        // Strip calculateresult attachments + preceding math expression
-        result = result.replacingOccurrences(
-            of: #"(?m)^[0-9,.\s+\-*/]+\n!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,
-            with: "", options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"(?m)^!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,
-            with: "", options: .regularExpression
-        )
-        result = postProcessNonCodeLines(result)
-        // Strip trailing whitespace
-        result = result.split(separator: "\n", omittingEmptySubsequences: false).map {
-            String($0).replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
-        }.joined(separator: "\n")
-        // Remove empty list items and empty headings
-        result = result.replacingOccurrences(of: #"(?m)^-$\n?"#, with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"(?m)^#{1,3}$\n?"#, with: "", options: .regularExpression)
-        // Unicode dividers → markdown horizontal rule
-        result = result.replacingOccurrences(of: "\u{2E3A}", with: "\n---\n")
-        result = result.replacingOccurrences(of: "\u{2E3B}", with: "\n---\n")
-        // Final cleanup
-        result = result.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
-        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return result
-    }
-
-    private func postProcessNonCodeLines(_ output: String) -> String {
-        var inCodeBlock = false
-        var seenH1 = false
-
-        return output.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
-            var str = String(line)
-            if str.hasPrefix("```") {
-                inCodeBlock.toggle()
-                return str
-            }
-            guard !inCodeBlock else { return str }
-
-            // Wrap bare URLs as markdown links.
-            str = str.replacingOccurrences(
-                of: #"(?<!\(|<|\[)https?://[^\s\)\]>]+"#,
-                with: "[$0]($0)", options: .regularExpression
-            )
-
-            // One H1 per file — demote secondary H1s to H2 (standard markdown practice).
-            if str.hasPrefix("# ") && !str.hasPrefix("## ") {
-                if seenH1 { return "##" + str.dropFirst(1) }
-                seenH1 = true
-            }
-            return str
-        }.joined(separator: "\n")
+        return MarkdownPostProcessor.run(output)
     }
 
     // MARK: - Run Merging
@@ -476,5 +407,102 @@ private struct MarkdownMapper {
         guard let match = noteURIPattern.firstMatch(in: link, range: range),
               let uuidRange = Range(match.range(at: 1), in: link) else { return nil }
         return String(link[uuidRange])
+    }
+}
+
+// MARK: - Markdown Post-Processing
+
+private enum MarkdownPostProcessor {
+    static func run(_ output: String) -> String {
+        var result = normalizeUnicode(output)
+        result = removeBoldArtifacts(result)
+        result = addBlankLinesBeforeHeadings(result)
+        result = stripCalculatorResults(result)
+        result = processNonCodeLines(result)
+        result = trimTrailingWhitespace(result)
+        result = removeEmptyMarkers(result)
+        result = normalizeDividers(result)
+        result = collapseBlankLines(result)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizeUnicode(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n")
+    }
+
+    private static func removeBoldArtifacts(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "****", with: "")
+            .replacingOccurrences(of: #"\*\*\s+\*\*"#, with: " ", options: .regularExpression)
+    }
+
+    private static func addBlankLinesBeforeHeadings(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: #"(?m)([^\n])\n(#{1,3} )"#, with: "$1\n\n$2", options: .regularExpression
+        )
+    }
+
+    private static func stripCalculatorResults(_ text: String) -> String {
+        text
+            .replacingOccurrences(
+                of: #"(?m)^[0-9,.\s+\-*/]+\n!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,
+                with: "", options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"(?m)^!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,
+                with: "", options: .regularExpression
+            )
+    }
+
+    private static func processNonCodeLines(_ text: String) -> String {
+        var inCodeBlock = false
+        var seenH1 = false
+
+        return text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            var str = String(line)
+            if str.hasPrefix("```") {
+                inCodeBlock.toggle()
+                return str
+            }
+            guard !inCodeBlock else { return str }
+
+            str = wrapBareURLs(str)
+            if str.hasPrefix("# ") && !str.hasPrefix("## ") {
+                if seenH1 { return "##" + str.dropFirst(1) }
+                seenH1 = true
+            }
+            return str
+        }.joined(separator: "\n")
+    }
+
+    private static func wrapBareURLs(_ line: String) -> String {
+        line.replacingOccurrences(
+            of: #"(?<!\(|<|\[)https?://[^\s\)\]>]+"#,
+            with: "[$0]($0)", options: .regularExpression
+        )
+    }
+
+    private static func trimTrailingWhitespace(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map {
+            String($0).replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
+        }.joined(separator: "\n")
+    }
+
+    private static func removeEmptyMarkers(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: #"(?m)^-$\n?"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)^#{1,3}$\n?"#, with: "", options: .regularExpression)
+    }
+
+    private static func normalizeDividers(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{2E3A}", with: "\n---\n")
+            .replacingOccurrences(of: "\u{2E3B}", with: "\n---\n")
+    }
+
+    private static func collapseBlankLines(_ text: String) -> String {
+        text.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
     }
 }
