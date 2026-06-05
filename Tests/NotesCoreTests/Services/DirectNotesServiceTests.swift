@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import NotesCore
 import NotesTestSupport
@@ -11,6 +12,66 @@ struct DirectNotesServiceTests {
     /// A path that does not point at a readable SQLite database.
     private func bogusDBPath() -> String {
         "/tmp/notes-cli-test-nonexistent-\(UUID().uuidString)/NoteStore.sqlite"
+    }
+
+    private func makeScopedDB() throws -> (path: String, outOfScopeID: String) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notes-cli-scope-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("NoteStore.sqlite").path
+        let db = try DatabaseQueue(path: path)
+        let storeUUID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+
+        try db.write { conn in
+            try conn.execute(sql: "CREATE TABLE z_primarykey (z_ent INTEGER, z_name TEXT)")
+            try conn.execute(sql: "CREATE TABLE z_metadata (z_uuid TEXT)")
+            try conn.execute(sql: """
+                CREATE TABLE ziccloudsyncingobject (
+                    z_pk INTEGER PRIMARY KEY,
+                    z_ent INTEGER,
+                    zname TEXT,
+                    zidentifier TEXT,
+                    ztitle2 TEXT,
+                    zparent INTEGER,
+                    zowner INTEGER,
+                    zfoldertype INTEGER,
+                    ztitle1 TEXT,
+                    zfolder INTEGER,
+                    zcreationdate1 REAL,
+                    zmodificationdate1 REAL,
+                    zispasswordprotected INTEGER,
+                    zsnippet TEXT,
+                    zmarkedfordeletion INTEGER
+                )
+                """)
+            try conn.execute(sql: "CREATE TABLE zicnotedata (znote INTEGER, zdata BLOB)")
+            try conn.execute(sql: """
+                INSERT INTO z_primarykey (z_ent, z_name)
+                VALUES (1, 'ICNote'), (2, 'ICFolder'), (3, 'ICAccount')
+                """)
+            try conn.execute(sql: "INSERT INTO z_metadata (z_uuid) VALUES (?)", arguments: [storeUUID])
+            try conn.execute(sql: """
+                INSERT INTO ziccloudsyncingobject (z_pk, z_ent, zname, zidentifier)
+                VALUES (10, 3, 'iCloud', 'icloud-account'), (20, 3, 'Gmail', 'gmail-account')
+                """)
+            try conn.execute(sql: """
+                INSERT INTO ziccloudsyncingobject
+                    (z_pk, z_ent, zidentifier, ztitle2, zowner, zfoldertype, zmarkedfordeletion)
+                VALUES
+                    (11, 2, 'icloud-folder', 'Notes', 10, 0, 0),
+                    (21, 2, 'gmail-folder', 'Notes', 20, 0, 0)
+                """)
+            try conn.execute(sql: """
+                INSERT INTO ziccloudsyncingobject
+                    (z_pk, z_ent, zidentifier, ztitle1, zfolder, zcreationdate1,
+                     zmodificationdate1, zispasswordprotected, zsnippet, zmarkedfordeletion)
+                VALUES
+                    (101, 1, 'icloud-note', 'Scoped', 11, 1, 2, 0, 'scoped', 0),
+                    (202, 1, 'gmail-note', 'Out of scope', 21, 1, 2, 0, 'outside', 0)
+                """)
+        }
+
+        return (path, "x-coredata://\(storeUUID)/ICNote/p202")
     }
 
     // MARK: - Availability
@@ -83,6 +144,19 @@ struct DirectNotesServiceTests {
 
         #expect(service.scope.selectedAccount == "Gmail")
         #expect(service.scope.rootFolder == "notes-cli")
+    }
+
+    @Test("fetchNote respects the selected account scope")
+    func fetchNoteRespectsSelectedAccountScope() async throws {
+        let fixture = try makeScopedDB()
+        let reader = NoteStoreReader(databasePath: fixture.path)
+        let scope = Config.NotesScope(selectedAccount: "iCloud")
+        let writer = await ScriptingBridgeWriter(scope: scope)
+        let service = DirectNotesService(reader: reader, writer: writer, scope: scope)
+
+        let note = try await service.fetchNote(id: fixture.outOfScopeID)
+
+        #expect(note == nil)
     }
 
     // MARK: - Read delegation errors

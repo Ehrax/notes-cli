@@ -36,12 +36,12 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
 
     public func fetchAllNoteMetadata() async throws -> [AppleNoteMetadata] {
         try reader.fetchAllNoteMetadata()
-            .filter { scope.isInSelectedAccount($0.folderPath) && !$0.isLocked }
+            .filter(isVisible)
     }
 
     public func fetchAllNotes() async throws -> [AppleNoteRaw] {
         try reader.fetchAllNotes()
-            .filter { scope.isInSelectedAccount($0.folderPath) && !$0.isLocked }
+            .filter(isVisible)
     }
 
     public func searchNotes(query: String, limit: Int) async throws -> [AppleNoteRaw] {
@@ -49,7 +49,12 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
     }
 
     public func fetchNote(id: String) async throws -> AppleNoteRaw? {
-        try reader.fetchNote(id: id)
+        guard let note = try reader.fetchNote(id: id), isVisible(note) else { return nil }
+        return note
+    }
+
+    public func renderMarkdownBody(for note: AppleNoteRaw) async throws -> String {
+        try reader.renderMarkdownBody(for: note)
     }
 
     public func fetchFolders() async throws -> [AppleFolderRaw] {
@@ -185,5 +190,13 @@ public final class DirectNotesService: NotesServiceProtocol, @unchecked Sendable
         case .intoOwnSubtree:
             return .commandFailed(message: "Cannot move a folder into its own subtree: \(path)")
         }
+    }
+
+    private func isVisible(_ note: AppleNoteMetadata) -> Bool {
+        scope.isInSelectedAccount(note.folderPath) && !note.isLocked
+    }
+
+    private func isVisible(_ note: AppleNoteRaw) -> Bool {
+        scope.isInSelectedAccount(note.folderPath) && !note.isLocked
     }
 }

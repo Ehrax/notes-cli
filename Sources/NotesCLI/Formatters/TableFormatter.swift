@@ -56,6 +56,17 @@ enum TableFormatter {
         printTable(headers: headers, rows: rows)
     }
 
+    static func printFolderTree(_ folders: [Folder]) {
+        if folders.isEmpty {
+            Swift.print("No folders found.")
+            return
+        }
+
+        for folder in FolderTreeRenderer.rows(for: folders) {
+            Swift.print(folder)
+        }
+    }
+
     // MARK: - Export
 
     static func printExportResult(_ result: ExportResult) {

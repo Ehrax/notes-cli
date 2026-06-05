@@ -449,6 +449,17 @@ struct ProtobufToMarkdownTests {
         #expect(result.markdown.contains("let x = 1"))
     }
 
+    @Test("Bare URL inside code block stays literal")
+    func bareURLInsideCodeBlockStaysLiteral() throws {
+        let resolver = MockAttachmentResolver()
+        let data = try makeNoteData(
+            noteText: "https://example.com\n",
+            runs: [makeRun(text: "https://example.com\n", styleType: 4)]
+        )
+        let result = try ProtobufToMarkdown.convert(data: data, resolver: resolver)
+        #expect(result.markdown == "```\nhttps://example.com\n```")
+    }
+
     // MARK: - Blockquote
 
     @Test("Blockquote with depth")

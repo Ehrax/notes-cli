@@ -72,34 +72,20 @@ public final class NoteStoreReader: Sendable {
     public func fetchAllNoteMetadata() throws -> [AppleNoteMetadata] {
         let db = try openDB()
         return try db.read { conn in
-            let entityTypes = try loadEntityTypes(conn)
-            guard let noteEnt = entityTypes["ICNote"],
-                  let folderEnt = entityTypes["ICFolder"],
-                  let accountEnt = entityTypes["ICAccount"] else { return [] }
-
-            let storeUUID = fetchStoreUUID(conn)
-            let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
-            let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
-            let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
-            let byPK = Dictionary(uniqueKeysWithValues: rawFolders.map { ($0.pk, $0) })
-            let validFolderPKs = Set(rawFolders.map { $0.pk })
-            let rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs)
+            guard let context = try makeNoteReadContext(conn) else { return [] }
+            let rows = try queryNoteRows(conn, noteEnt: context.noteEnt, validFolderPKs: context.validFolderPKs)
 
             return rows.compactMap { row -> AppleNoteMetadata? in
                 guard let identifier = row.identifier,
                       let title = row.title,
                       let folderPK = row.folderPK else { return nil }
-                let folderInfo = folderIndex[folderPK]
+                let folderInfo = context.folderIndex[folderPK]
                 return AppleNoteMetadata(
-                    id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: identifier),
+                    id: context.noteID(pk: row.pk, fallback: identifier),
                     name: title,
                     folderName: folderInfo?.name ?? "",
                     folderPath: folderInfo?.path ?? "",
-                    accountName: resolveAccountName(
-                        folderPK: folderPK,
-                        byPK: byPK,
-                        accounts: accounts
-                    ),
+                    accountName: context.accountName(folderPK: folderPK),
                     creationDate: row.creationDate ?? Date(),
                     modificationDate: row.modificationDate ?? Date(),
                     isLocked: row.isLocked
@@ -116,27 +102,32 @@ public final class NoteStoreReader: Sendable {
         }
     }
 
+    /// Render a note body to Markdown, resolving inline attachments in one read transaction.
+    public func renderMarkdownBody(for note: AppleNoteRaw) throws -> String {
+        guard !note.bodyProtobuf.isEmpty else {
+            return note.bodyPlaintext
+        }
+
+        let db = try openDB()
+        return try db.read { conn in
+            let resolver = ConnectionAttachmentResolver(conn: conn)
+            return NoteBodyRenderer.markdown(for: Note(from: note), resolver: resolver)
+        }
+    }
+
     /// Fetch a single note by its Apple identifier (ZIDENTIFIER).
     public func fetchNote(id: String) throws -> AppleNoteRaw? {
         let db = try openDB()
         return try db.read { conn in
-            let entityTypes = try loadEntityTypes(conn)
-            guard let noteEnt = entityTypes["ICNote"],
-                  let folderEnt = entityTypes["ICFolder"],
-                  let accountEnt = entityTypes["ICAccount"] else { return nil }
-
-            let storeUUID = fetchStoreUUID(conn)
-            let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
-            let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
-            let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
-            let byPK = Dictionary(uniqueKeysWithValues: rawFolders.map { ($0.pk, $0) })
-            let validFolderPKs = Set(rawFolders.map { $0.pk })
+            guard let context = try makeNoteReadContext(conn) else { return nil }
             // Resolve by Z_PK parsed from the x-coredata id; fall back to ZIDENTIFIER.
             let rows: [NoteRow]
             if let pk = notePK(fromScriptingID: id) {
-                rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs, pk: pk)
+                rows = try queryNoteRows(conn, noteEnt: context.noteEnt, validFolderPKs: context.validFolderPKs, pk: pk)
             } else {
-                rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs, identifier: id)
+                rows = try queryNoteRows(
+                    conn, noteEnt: context.noteEnt, validFolderPKs: context.validFolderPKs, identifier: id
+                )
             }
 
             guard let row = rows.first,
@@ -145,12 +136,10 @@ public final class NoteStoreReader: Sendable {
 
             return try buildAppleNoteRaw(
                 row: row,
-                id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: row.identifier ?? id),
+                id: context.noteID(pk: row.pk, fallback: row.identifier ?? id),
                 title: title,
                 folderPK: folderPK,
-                folderIndex: folderIndex,
-                byPK: byPK,
-                accounts: accounts,
+                context: context,
                 conn: conn
             )
         }
@@ -252,13 +241,6 @@ extension NoteStoreReader {
     /// to address a note — verified equal to `id of note`.
     func fetchStoreUUID(_ db: Database) -> String? {
         try? String.fetchOne(db, sql: "SELECT Z_UUID FROM Z_METADATA LIMIT 1")
-    }
-
-    /// Build a note's scripting id from the store UUID and its Z_PK rowid.
-    /// Falls back to the raw ZIDENTIFIER only if the store UUID is unavailable.
-    func makeNoteID(storeUUID: String?, pk: Int, fallback: String) -> String {
-        guard let storeUUID, !storeUUID.isEmpty else { return fallback }
-        return "x-coredata://\(storeUUID)/ICNote/p\(pk)"
     }
 
     /// Extract the note Z_PK from an `x-coredata://…/ICNote/p<pk>` id, if present.
@@ -427,26 +409,6 @@ private extension NoteStoreReader {
         }
     }
 
-    /// Walk folder hierarchy to find the account name for a given folder PK.
-    /// `byPK` must be pre-built from the same rawFolders array to avoid repeated allocation.
-    func resolveAccountName(
-        folderPK: Int,
-        byPK: [Int: RawFolderRow],
-        accounts: [Int: AccountInfo]
-    ) -> String? {
-        var current = byPK[folderPK]
-        while let folder = current {
-            if let ownerPK = folder.ownerPK, let acct = accounts[ownerPK] {
-                return acct.name
-            }
-            if let parentPK = folder.parentPK {
-                current = byPK[parentPK]
-            } else {
-                break
-            }
-        }
-        return nil
-    }
 }
 
 // MARK: - Private: Notes
@@ -461,6 +423,53 @@ private extension NoteStoreReader {
         let modificationDate: Date?
         let isLocked: Bool
         let snippet: String?
+    }
+
+    struct NoteReadContext {
+        let storeUUID: String?
+        let noteEnt: Int64
+        let accounts: [Int: AccountInfo]
+        let folderIndex: [Int: FolderInfo]
+        let byFolderPK: [Int: RawFolderRow]
+        let validFolderPKs: Set<Int>
+
+        func noteID(pk: Int, fallback: String) -> String {
+            guard let storeUUID, !storeUUID.isEmpty else { return fallback }
+            return "x-coredata://\(storeUUID)/ICNote/p\(pk)"
+        }
+
+        func accountName(folderPK: Int) -> String? {
+            var current = byFolderPK[folderPK]
+            while let folder = current {
+                if let ownerPK = folder.ownerPK, let acct = accounts[ownerPK] {
+                    return acct.name
+                }
+                if let parentPK = folder.parentPK {
+                    current = byFolderPK[parentPK]
+                } else {
+                    break
+                }
+            }
+            return nil
+        }
+    }
+
+    func makeNoteReadContext(_ conn: Database) throws -> NoteReadContext? {
+        let entityTypes = try loadEntityTypes(conn)
+        guard let noteEnt = entityTypes["ICNote"],
+              let folderEnt = entityTypes["ICFolder"],
+              let accountEnt = entityTypes["ICAccount"] else { return nil }
+
+        let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
+        let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
+        return NoteReadContext(
+            storeUUID: fetchStoreUUID(conn),
+            noteEnt: noteEnt,
+            accounts: accounts,
+            folderIndex: buildFolderIndex(rawFolders, accounts: accounts),
+            byFolderPK: Dictionary(uniqueKeysWithValues: rawFolders.map { ($0.pk, $0) }),
+            validFolderPKs: Set(rawFolders.map { $0.pk })
+        )
     }
 
     /// Query note rows, excluding notes in folders not present in validFolderPKs.
@@ -521,48 +530,33 @@ private extension NoteStoreReader {
     }
 
     func fetchNotesInConnection(_ conn: Database) throws -> [AppleNoteRaw] {
-        let entityTypes = try loadEntityTypes(conn)
-        guard let noteEnt = entityTypes["ICNote"],
-              let folderEnt = entityTypes["ICFolder"],
-              let accountEnt = entityTypes["ICAccount"] else { return [] }
-
-        let storeUUID = fetchStoreUUID(conn)
-        let accounts = try fetchAccountsMap(conn, accountEnt: accountEnt)
-        let rawFolders = try queryFolders(conn, folderEnt: folderEnt)
-        let folderIndex = buildFolderIndex(rawFolders, accounts: accounts)
-        let byPK = Dictionary(uniqueKeysWithValues: rawFolders.map { ($0.pk, $0) })
-        let validFolderPKs = Set(rawFolders.map { $0.pk })
-        let rows = try queryNoteRows(conn, noteEnt: noteEnt, validFolderPKs: validFolderPKs)
+        guard let context = try makeNoteReadContext(conn) else { return [] }
+        let rows = try queryNoteRows(conn, noteEnt: context.noteEnt, validFolderPKs: context.validFolderPKs)
 
         return try rows.compactMap { row -> AppleNoteRaw? in
             guard let title = row.title,
                   let folderPK = row.folderPK else { return nil }
             return try buildAppleNoteRaw(
                 row: row,
-                id: makeNoteID(storeUUID: storeUUID, pk: row.pk, fallback: row.identifier ?? ""),
+                id: context.noteID(pk: row.pk, fallback: row.identifier ?? ""),
                 title: title,
                 folderPK: folderPK,
-                folderIndex: folderIndex,
-                byPK: byPK,
-                accounts: accounts,
+                context: context,
                 conn: conn
             )
         }
     }
 
-    // swiftlint:disable:next function_parameter_count
     func buildAppleNoteRaw(
         row: NoteRow,
         id: String,
         title: String,
         folderPK: Int,
-        folderIndex: [Int: FolderInfo],
-        byPK: [Int: RawFolderRow],
-        accounts: [Int: AccountInfo],
+        context: NoteReadContext,
         conn: Database
     ) throws -> AppleNoteRaw {
-        let folderInfo = folderIndex[folderPK]
-        let acctName = resolveAccountName(folderPK: folderPK, byPK: byPK, accounts: accounts)
+        let folderInfo = context.folderIndex[folderPK]
+        let acctName = context.accountName(folderPK: folderPK)
 
         // Locked notes: store metadata only, body is empty
         guard !row.isLocked else {

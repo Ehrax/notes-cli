@@ -58,12 +58,6 @@ public actor ServiceContainer {
         }
     }
 
-    public var attachmentResolver: any AttachmentResolver {
-        get async throws {
-            NoteStoreReader()
-        }
-    }
-
     // MARK: - Override methods for testing
 
     public func override(notes: (any NotesServiceProtocol)?) {

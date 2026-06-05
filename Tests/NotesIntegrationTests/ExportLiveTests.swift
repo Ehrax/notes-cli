@@ -68,7 +68,7 @@ struct ExportLiveTests {
 
         let tempDir = try makeTempDirectory(prefix: "export-live")
         defer { removeTempDirectory(tempDir) }
-        let export = ExportService(notes: service, resolver: reader)
+        let export = ExportService(notes: service)
 
         // Markdown: front-matter + body fidelity (italic round-trips as *emphasis*).
         let md = try await export.export(format: .md, outputDir: tempDir.path, folder: root)

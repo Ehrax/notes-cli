@@ -58,6 +58,17 @@ enum OutputFormatter {
         }
     }
 
+    static func printFolderTree(_ folders: [Folder], format: OutputFormat) throws {
+        switch format {
+        case .json:
+            try JSONOutputFormatter.print(folders.map(FolderOutput.init))
+        case .table:
+            TableFormatter.printFolderTree(folders)
+        case .markdown:
+            MarkdownFormatter.printFolderTree(folders)
+        }
+    }
+
     static func printMessage(_ message: String, format: OutputFormat) throws {
         switch format {
         case .json:

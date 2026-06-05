@@ -12,7 +12,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path
         )
@@ -38,7 +38,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .json, outputDir: tempDir.path
         )
@@ -65,7 +65,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path
         )
@@ -91,7 +91,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path
         )
@@ -115,7 +115,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path,
             folder: "notes-cli/projects",
@@ -130,7 +130,7 @@ struct ExportServiceTests {
         let tempDir = try makeTempDirectory()
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path
         )

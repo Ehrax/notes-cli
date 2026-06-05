@@ -22,16 +22,7 @@ struct NotesReadCommand: AsyncParsableCommand {
         }
 
         let note = Note(from: raw)
-        let bodyText = await Self.convertedBody(for: note, container: container)
+        let bodyText = try await notesSvc.renderMarkdownBody(for: raw)
         try OutputFormatter.printNote(note, bodyText: bodyText, format: global.resolvedFormat)
-    }
-
-    private static func convertedBody(for note: Note, container: ServiceContainer) async -> String {
-        do {
-            let resolver = try await container.attachmentResolver
-            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
-        } catch {
-            return note.bodyPlaintext
-        }
     }
 }

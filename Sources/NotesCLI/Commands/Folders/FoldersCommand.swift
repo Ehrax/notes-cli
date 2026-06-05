@@ -20,21 +20,9 @@ struct FoldersCommand: AsyncParsableCommand {
         }
 
         if tree {
-            FolderTree.print(folders)
+            try OutputFormatter.printFolderTree(folders, format: global.resolvedFormat)
         } else {
             try OutputFormatter.printFolders(folders, format: global.resolvedFormat)
-        }
-    }
-}
-
-/// Renders a flat folder list as an indented tree by "/"-delimited path depth.
-private enum FolderTree {
-    static func print(_ folders: [Folder]) {
-        let sorted = folders.sorted { $0.path < $1.path }
-        for folder in sorted {
-            let depth = folder.path.split(separator: "/").count - 1
-            let indent = String(repeating: "  ", count: max(0, depth))
-            Swift.print("\(indent)\(folder.name)")
         }
     }
 }

@@ -313,6 +313,26 @@ struct FolderCommandTests {
         #expect(output.contains("Ideas"))
     }
 
+    @Test("folders tree still respects explicit JSON format")
+    func foldersTreeRespectsJSONFormat() async throws {
+        let notes = MockNotesService()
+        notes.folders = [
+            AppleFolderRaw(id: "f1", name: "Projects", path: "Projects", parentPath: nil),
+            AppleFolderRaw(id: "f2", name: "Ideas", path: "Projects/Ideas", parentPath: "Projects"),
+        ]
+        let output = try await captureStdout {
+            try await withNotes(notes) {
+                let command = try FoldersCommand.parse(["--tree", "--format", "json"])
+                try await command.run()
+            }
+        }
+
+        let data = try #require(output.data(using: .utf8))
+        let decoded = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        #expect(decoded?.count == 2)
+        #expect(decoded?.contains { $0["path"] as? String == "Projects/Ideas" } == true)
+    }
+
     @Test("folder create calls the writer with name and parent")
     func folderCreateCallsWriter() async throws {
         let notes = MockNotesService()

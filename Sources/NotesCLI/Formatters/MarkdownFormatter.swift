@@ -71,6 +71,18 @@ enum MarkdownFormatter {
         }
     }
 
+    static func printFolderTree(_ folders: [Folder]) {
+        if folders.isEmpty {
+            Swift.print("*No folders found.*")
+            return
+        }
+
+        Swift.print("# Folders\n")
+        for folder in FolderTreeRenderer.rows(for: folders) {
+            Swift.print(folder)
+        }
+    }
+
     // MARK: - Export
 
     static func printExportResult(_ result: ExportResult) {

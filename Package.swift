@@ -55,6 +55,7 @@ let package = Package(
             dependencies: [
                 "NotesCore",
                 "NotesTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ]
         ),

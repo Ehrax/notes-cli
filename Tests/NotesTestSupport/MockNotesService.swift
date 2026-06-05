@@ -141,6 +141,11 @@ public final class MockNotesService: NotesServiceProtocol, @unchecked Sendable {
         return notes.first { $0.id == id }
     }
 
+    public func renderMarkdownBody(for note: AppleNoteRaw) async throws -> String {
+        if let error = errorToThrow { throw error }
+        return note.bodyPlaintext
+    }
+
     public func createNote(title: String, bodyHTML: String, folderName: String, agent: String?) async throws -> String {
         createNoteCalled = true
         lastCreatedTitle = title

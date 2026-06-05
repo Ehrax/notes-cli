@@ -30,14 +30,6 @@ private enum StyleType: Int32 {
     case checkbox = 103
 }
 
-/// Apple Notes font weight values. Ref: obsidian models.ts ANFontWeight
-private enum FontWeight: Int32 {
-    case regular = 0
-    case bold = 1
-    case italic = 2
-    case boldItalic = 3
-}
-
 /// Known attachment UTI types. Ref: obsidian models.ts ANAttachment
 private enum AttachmentType: String {
     case drawing = "com.apple.paper"
@@ -232,21 +224,7 @@ private struct MarkdownMapper {
             of: #"(?m)^!\[\[attachment:[^\]]*calculateresult[^\]]*\]\]\n?"#,
             with: "", options: .regularExpression
         )
-        // Wrap bare URLs as markdown links
-        result = result.replacingOccurrences(
-            of: #"(?<!\(|<|\[)https?://[^\s\)\]>]+"#,
-            with: "[$0]($0)", options: .regularExpression
-        )
-        // One H1 per file — demote secondary H1s to H2 (standard markdown practice)
-        var seenH1 = false
-        result = result.split(separator: "\n", omittingEmptySubsequences: false).map { line in
-            let str = String(line)
-            if str.hasPrefix("# ") && !str.hasPrefix("## ") {
-                if seenH1 { return "##" + str.dropFirst(1) }
-                seenH1 = true
-            }
-            return str
-        }.joined(separator: "\n")
+        result = postProcessNonCodeLines(result)
         // Strip trailing whitespace
         result = result.split(separator: "\n", omittingEmptySubsequences: false).map {
             String($0).replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
@@ -261,6 +239,33 @@ private struct MarkdownMapper {
         result = result.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
         result = result.trimmingCharacters(in: .whitespacesAndNewlines)
         return result
+    }
+
+    private func postProcessNonCodeLines(_ output: String) -> String {
+        var inCodeBlock = false
+        var seenH1 = false
+
+        return output.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            var str = String(line)
+            if str.hasPrefix("```") {
+                inCodeBlock.toggle()
+                return str
+            }
+            guard !inCodeBlock else { return str }
+
+            // Wrap bare URLs as markdown links.
+            str = str.replacingOccurrences(
+                of: #"(?<!\(|<|\[)https?://[^\s\)\]>]+"#,
+                with: "[$0]($0)", options: .regularExpression
+            )
+
+            // One H1 per file — demote secondary H1s to H2 (standard markdown practice).
+            if str.hasPrefix("# ") && !str.hasPrefix("## ") {
+                if seenH1 { return "##" + str.dropFirst(1) }
+                seenH1 = true
+            }
+            return str
+        }.joined(separator: "\n")
     }
 
     // MARK: - Run Merging
@@ -313,16 +318,6 @@ private struct MarkdownMapper {
         return merged
     }
 
-    /// Wrap text with markers (** or ~~) keeping whitespace outside the markers.
-    /// "Ziel: " → "**Ziel:** " instead of "**Ziel: **"
-    private func wrapMarker(_ text: String, marker: String) -> String {
-        let leading = String(text.prefix(while: \.isWhitespace))
-        let trailing = String(text.reversed().prefix(while: { $0.isWhitespace }).reversed())
-        let inner = text.dropFirst(leading.count).dropLast(trailing.count)
-        guard !inner.isEmpty else { return text }
-        return "\(leading)\(marker)\(inner)\(marker)\(trailing)"
-    }
-
     private func isWordChar(_ char: Character) -> Bool {
         char.isLetter || char.isNumber
             || char == "-" || char == "\u{2013}" || char == "\u{2014}"  // dashes
@@ -356,25 +351,12 @@ private struct MarkdownMapper {
 
         var result = text
 
-        // Underline → bold
-        if run.underlined != 0 && !suppressBold {
-            result = wrapMarker(result, marker: "**")
-        }
-
-        // Font weight
-        if !suppressBold, let weight = FontWeight(rawValue: run.fontWeight) {
-            switch weight {
-            case .bold: result = wrapMarker(result, marker: "**")
-            case .italic: result = wrapMarker(result, marker: "*")
-            case .boldItalic: result = wrapMarker(result, marker: "***")
-            case .regular: break
-            }
-        }
-
-        // Strikethrough
-        if run.strikethrough != 0 {
-            result = wrapMarker(result, marker: "~~")
-        }
+        result = InlineMarkdownFormatter.apply(
+            to: result,
+            fontWeight: suppressBold ? nil : run.fontWeight,
+            underlined: run.underlined != 0 && !suppressBold,
+            strikethrough: run.strikethrough != 0
+        )
 
         // Links
         if hasLink {

@@ -183,38 +183,13 @@ public enum TableConverter {
     /// fontWeight values: 1 = bold, 2 = italic (plain), 3 = bold+italic (bold only).
     /// Also applies strikethrough (`~~`) and underline (→ bold) wrapping.
     private static func applyInlineFormatting(_ text: String, run: Ciofecaforensics_AttributeRun) -> String {
-        let hasFontWeight = run.hasFontWeight
-        let hasStrikethrough = run.strikethrough != 0
-        let hasUnderline = run.underlined != 0
-        guard hasFontWeight || hasStrikethrough || hasUnderline else { return text }
-
-        let leadingSpaces = String(text.prefix(while: { $0 == " " || $0 == "\t" }))
-        let trailingSpaces = String(text.reversed().prefix(while: { $0 == " " || $0 == "\t" }).reversed())
-        let inner = text.trimmingCharacters(in: .init(charactersIn: " \t"))
-        guard !inner.isEmpty else { return text }
-
-        // Apply font weight markers
-        var result = inner
-        if hasFontWeight {
-            switch run.fontWeight {
-            case 1: result = "**\(result)**"       // bold
-            case 2: break                           // italic → plain text
-            case 3: result = "**\(result)**"        // boldItalic → bold only
-            default: break
-            }
-        }
-
-        // Underline → bold
-        if hasUnderline {
-            result = "**\(result)**"
-        }
-
-        // Strikethrough
-        if hasStrikethrough {
-            result = "~~\(result)~~"
-        }
-
-        return leadingSpaces + result + trailingSpaces
+        InlineMarkdownFormatter.apply(
+            to: text,
+            fontWeight: run.hasFontWeight ? run.fontWeight : nil,
+            underlined: run.underlined != 0,
+            strikethrough: run.strikethrough != 0,
+            italicPolicy: .plain
+        )
     }
 
     // MARK: - Markdown Rendering

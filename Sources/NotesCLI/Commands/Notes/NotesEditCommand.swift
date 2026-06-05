@@ -62,22 +62,13 @@ struct NotesEditCommand: AsyncParsableCommand {
             guard let raw = try await notesSvc.fetchNote(id: id) else {
                 throw NotesError.noteNotFound(id: id)
             }
-            let current = await Self.convertedBody(for: Note(from: raw), container: container)
+            let current = try await notesSvc.renderMarkdownBody(for: raw)
             newTitle = nil
             newBody = NoteHTML.plainTextHTML(try openEditor(content: current))
         }
 
         try await notesSvc.updateNote(id: id, title: newTitle, bodyHTML: newBody)
         try OutputFormatter.printMessage("Updated note \(id)", format: global.resolvedFormat)
-    }
-
-    private static func convertedBody(for note: Note, container: ServiceContainer) async -> String {
-        do {
-            let resolver = try await container.attachmentResolver
-            return NoteBodyRenderer.markdown(for: note, resolver: resolver)
-        } catch {
-            return note.bodyPlaintext
-        }
     }
 
     private func openEditor(content: String) throws -> String {

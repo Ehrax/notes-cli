@@ -26,9 +26,8 @@ struct ExportCommand: AsyncParsableCommand {
         let container = ServiceContainer.shared
 
         let notesSvc = try await container.notes
-        let resolver = try await container.attachmentResolver
         let config = try await container.config.loadConfig()
-        let service = ExportService(notes: notesSvc, resolver: resolver)
+        let service = ExportService(notes: notesSvc)
 
         let result = try await service.export(
             format: type, outputDir: output,

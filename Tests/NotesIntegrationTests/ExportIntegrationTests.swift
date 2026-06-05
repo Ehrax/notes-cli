@@ -18,7 +18,7 @@ struct ExportIntegrationTests {
         let tempDir = try makeTempDirectory(prefix: "export-md")
         defer { removeTempDirectory(tempDir) }
 
-        let service = ExportService(notes: mock, resolver: MockAttachmentResolver())
+        let service = ExportService(notes: mock)
         let result = try await service.export(
             format: .md, outputDir: tempDir.path
         )

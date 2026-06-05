@@ -3,14 +3,12 @@ import Foundation
 /// Exports notes from the live Apple Notes database to files on disk.
 public final class ExportService: Sendable {
     private let notes: any NotesServiceProtocol
-    private let resolver: any AttachmentResolver
 
     private static let appleNotesRoot =
         "Library/Group Containers/group.com.apple.notes"
 
-    public init(notes: any NotesServiceProtocol, resolver: any AttachmentResolver) {
+    public init(notes: any NotesServiceProtocol) {
         self.notes = notes
-        self.resolver = resolver
     }
 
     // MARK: - Public
@@ -22,7 +20,7 @@ public final class ExportService: Sendable {
         ignoreFolders: [String] = [],
         scope: Config.NotesScope = .default
     ) async throws -> ExportResult {
-        let notes = try await fetchFiltered(
+        let rawNotes = try await fetchFiltered(
             folder: folder, ignoreFolders: ignoreFolders, scope: scope
         )
 
@@ -32,10 +30,11 @@ public final class ExportService: Sendable {
         var folderPaths = Set<String>()
         var usedPaths = [String: Int]()
 
-        let total = notes.count
+        let total = rawNotes.count
         Self.progress("Exporting \(total) notes as \(format.rawValue) → \(outputDir)")
 
-        for (index, note) in notes.enumerated() {
+        for (index, rawNote) in rawNotes.enumerated() {
+            let note = Note(from: rawNote)
             let counter = "[\(index + 1)/\(total)]"
             do {
                 let fileURL = try prepareFileURL(
@@ -50,7 +49,7 @@ public final class ExportService: Sendable {
                 }
 
                 let content = try await renderContent(
-                    note: note, format: format, outputURL: outputURL
+                    rawNote: rawNote, note: note, format: format, outputURL: outputURL
                 )
                 try content.write(
                     to: fileURL, atomically: true, encoding: .utf8
@@ -124,8 +123,8 @@ public final class ExportService: Sendable {
         folder: String?,
         ignoreFolders: [String] = [],
         scope: Config.NotesScope
-    ) async throws -> [Note] {
-        var notes = try await self.notes.fetchAllNotes().map { Note(from: $0) }
+    ) async throws -> [AppleNoteRaw] {
+        var notes = try await self.notes.fetchAllNotes()
 
         if let folder {
             notes = notes.filter { scope.matchesFolderPath($0.folderPath, filter: folder) }
@@ -173,11 +172,11 @@ public final class ExportService: Sendable {
     }
 
     private func renderContent(
-        note: Note, format: ExportFormat, outputURL: URL
+        rawNote: AppleNoteRaw, note: Note, format: ExportFormat, outputURL: URL
     ) async throws -> String {
         let folderURL = outputURL.appendingPathComponent(note.folderPath, isDirectory: true)
 
-        let body = NoteBodyRenderer.markdown(for: note, resolver: resolver)
+        let body = try await notes.renderMarkdownBody(for: rawNote)
         let bodyWithAttachments = try await resolveAttachments(
             noteID: note.id, body: body, folderURL: folderURL
         )
