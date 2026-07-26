@@ -73,8 +73,11 @@ enum TableFormatter {
         Swift.print("Exported \(result.exported) notes to \(result.outputPath)")
         Swift.print("  Format: \(result.format)")
         Swift.print("  Folders: \(result.folders)")
+        if result.partial > 0 {
+            Swift.print("  Partial: \(result.partial) (see LOG.md)")
+        }
         if result.skipped > 0 {
-            Swift.print("  Skipped: \(result.skipped) (conversion errors)")
+            Swift.print("  Skipped: \(result.skipped) (see LOG.md)")
         }
     }
 

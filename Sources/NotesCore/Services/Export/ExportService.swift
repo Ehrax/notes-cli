@@ -27,10 +27,15 @@ public final class ExportService: Sendable {
         )
 
         let outputURL = URL(fileURLWithPath: outputDir, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: outputURL, withIntermediateDirectories: true
+        )
         var exported = 0
         var skipped = 0
+        var partial = 0
         var folderPaths = Set<String>()
         var usedPaths = [String: Int]()
+        var issues: [ExportIssue] = []
 
         let total = rawNotes.count
         Self.progress("Exporting \(total) notes as \(format.rawValue) → \(outputDir)")
@@ -50,22 +55,41 @@ public final class ExportService: Sendable {
                     Self.progress("\(counter) 📂 \(note.folderPath)")
                 }
 
-                let content = try await renderContent(
+                let rendered = try await renderContent(
                     rawNote: rawNote, note: note, format: format, outputURL: outputURL
                 )
-                try content.write(
+                try rendered.content.write(
                     to: fileURL, atomically: true, encoding: .utf8
                 )
                 exported += 1
-                Self.progress("\(counter) ✓ \(fileURL.lastPathComponent)")
+                if rendered.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let snippet = note.snippet?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !snippet.isEmpty {
+                    partial += 1
+                    issues.append(ExportIssue(
+                        status: "partial", note: note,
+                        reason: "Rendered body is empty although Apple Notes has a non-empty snippet."
+                    ))
+                    Self.progress("\(counter) ⚠ PARTIAL \(fileURL.lastPathComponent)")
+                } else {
+                    Self.progress("\(counter) ✓ \(fileURL.lastPathComponent)")
+                }
             } catch {
                 Self.progress("\(counter) ✗ SKIP \(note.title): \(error.localizedDescription)")
                 skipped += 1
+                issues.append(ExportIssue(
+                    status: "failed", note: note, reason: error.localizedDescription
+                ))
             }
         }
 
+        try Self.writeLog(
+            outputURL: outputURL, total: total, exported: exported,
+            partial: partial, skipped: skipped, issues: issues
+        )
+
         return ExportResult(
-            exported: exported, skipped: skipped,
+            exported: exported, skipped: skipped, partial: partial,
             folders: folderPaths.count, format: format.rawValue,
             outputPath: outputDir
         )
@@ -75,15 +99,25 @@ public final class ExportService: Sendable {
 
     static func markdownWithFrontmatter(note: Note, body: String) -> String {
         var lines = ["---"]
-        let escaped = note.title.replacingOccurrences(
-            of: "\"", with: "\\\""
-        )
-        lines.append("title: \"\(escaped)\"")
+        lines.append("title: \"\(yamlEscaped(note.title))\"")
         lines.append("created: \(note.creationDate.iso8601String)")
         lines.append("modified: \(note.modificationDate.iso8601String)")
+        lines.append("apple_note_id: \"\(yamlEscaped(note.id))\"")
+        if let accountName = note.accountName, !accountName.isEmpty {
+            lines.append("apple_account: \"\(yamlEscaped(accountName))\"")
+        }
+        lines.append("apple_folder: \"\(yamlEscaped(note.folderPath))\"")
         lines.append("---")
         lines.append(Self.stripRedundantTitle(body, title: note.title))
         return lines.joined(separator: "\n")
+    }
+
+    private static func yamlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 
     /// Strip duplicate bold line that matches the frontmatter title.
@@ -175,7 +209,7 @@ public final class ExportService: Sendable {
 
     private func renderContent(
         rawNote: AppleNoteRaw, note: Note, format: ExportFormat, outputURL: URL
-    ) async throws -> String {
+    ) async throws -> RenderedContent {
         let folderURL = outputURL.appendingPathComponent(note.folderPath, isDirectory: true)
 
         let body = try await notes.renderMarkdownBody(for: rawNote.body)
@@ -185,12 +219,63 @@ public final class ExportService: Sendable {
 
         switch format {
         case .json:
-            return try Self.jsonContent(note: note, body: bodyWithAttachments)
+            return RenderedContent(
+                content: try Self.jsonContent(note: note, body: bodyWithAttachments),
+                body: bodyWithAttachments
+            )
         case .md:
-            return Self.markdownWithFrontmatter(
-                note: note, body: bodyWithAttachments
+            return RenderedContent(
+                content: Self.markdownWithFrontmatter(
+                    note: note, body: bodyWithAttachments
+                ),
+                body: bodyWithAttachments
             )
         }
+    }
+
+    private static func writeLog(
+        outputURL: URL, total: Int, exported: Int, partial: Int,
+        skipped: Int, issues: [ExportIssue]
+    ) throws {
+        var lines = [
+            "# Apple Notes export log",
+            "",
+            "- Total considered: \(total)",
+            "- Exported: \(exported)",
+            "- Complete: \(exported - partial)",
+            "- Partial: \(partial)",
+            "- Failed: \(skipped)",
+            "",
+        ]
+
+        if issues.isEmpty {
+            lines.append("No partial or failed notes detected.")
+        } else {
+            lines += [
+                "## Notes requiring attention",
+                "",
+                "| Status | Title | Apple Note ID | Source folder | Reason |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+            lines += issues.map { issue in
+                "| \(tableEscaped(issue.status)) | \(tableEscaped(issue.note.title))"
+                    + " | `\(tableEscaped(issue.note.id))`"
+                    + " | \(tableEscaped(issue.note.folderPath))"
+                    + " | \(tableEscaped(issue.reason)) |"
+            }
+        }
+
+        let logURL = outputURL.appendingPathComponent("LOG.md")
+        try lines.joined(separator: "\n").write(
+            to: logURL, atomically: true, encoding: .utf8
+        )
+    }
+
+    private static func tableEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "|", with: "\\|")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
     }
 
     static func jsonContent(note: Note, body: String) throws -> String {
@@ -266,6 +351,17 @@ public final class ExportService: Sendable {
     private static func progress(_ message: String) {
         fputs(message + "\n", stderr)
     }
+}
+
+private struct RenderedContent {
+    let content: String
+    let body: String
+}
+
+private struct ExportIssue {
+    let status: String
+    let note: Note
+    let reason: String
 }
 
 /// JSON export shape for a single note (stable public contract).

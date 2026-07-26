@@ -23,6 +23,7 @@ public func makeSampleAppleNote(
     bodyProtobuf: Data = Data(),
     bodyPlaintext: String = "Hello",
     folder: String = "Notes",
+    snippet: String? = nil,
     creationDate: Date = Date(),
     modificationDate: Date = Date(),
     isLocked: Bool = false
@@ -35,6 +36,7 @@ public func makeSampleAppleNote(
         bodyPlaintext: bodyPlaintext,
         folderName: folderName,
         folderPath: folder,
+        snippet: snippet,
         creationDate: creationDate,
         modificationDate: modificationDate,
         isLocked: isLocked

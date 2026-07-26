@@ -216,6 +216,19 @@ struct ExportServiceTests {
         #expect(result.skipped == 0)
     }
 
+    @Test func createsOutputDirectoryAndLogForNoMatches() async throws {
+        let mock = MockNotesService()
+        let parent = try makeTempDirectory()
+        defer { removeTempDirectory(parent) }
+        let output = parent.appendingPathComponent("new-export")
+
+        let service = ExportService(notes: mock)
+        let result = try await service.export(format: .md, outputDir: output.path)
+
+        #expect(result.exported == 0)
+        #expect(FileManager.default.fileExists(atPath: output.appendingPathComponent("LOG.md").path))
+    }
+
     @Test func markdownFrontmatterFormatsCorrectly() {
         let note = makeSampleNote(
             id: "n1", title: "My Note",
@@ -228,8 +241,45 @@ struct ExportServiceTests {
         #expect(result.contains("title: \"My Note\""))
         #expect(result.contains("created:"))
         #expect(result.contains("modified:"))
+        #expect(result.contains("apple_note_id: \"n1\""))
+        #expect(result.contains("apple_folder: \"Notes\""))
         #expect(!result.contains("tags:"))
         #expect(result.contains("---\nHello"))
+    }
+
+    @Test func writesLogForPartialAndFailedNotes() async throws {
+        let mock = MockNotesService()
+        mock.notes = [
+            makeSampleAppleNote(
+                id: "partial-id", name: "Partial",
+                bodyPlaintext: "", folder: "iCloud/Notes",
+                snippet: "Content still exists"
+            ),
+            makeSampleAppleNote(
+                id: "complete-id", name: "Complete",
+                bodyPlaintext: "Body", folder: "iCloud/Notes"
+            ),
+        ]
+
+        let tempDir = try makeTempDirectory()
+        defer { removeTempDirectory(tempDir) }
+
+        let service = ExportService(notes: mock)
+        let result = try await service.export(format: .md, outputDir: tempDir.path)
+
+        #expect(result.exported == 2)
+        #expect(result.partial == 1)
+
+        let log = try String(
+            contentsOf: tempDir.appendingPathComponent("LOG.md"),
+            encoding: .utf8
+        )
+        #expect(log.contains("Exported: 2"))
+        #expect(log.contains("Partial: 1"))
+        #expect(log.contains("partial-id"))
+        #expect(log.contains("Partial"))
+        #expect(log.contains("Rendered body is empty"))
+        #expect(!log.contains("complete-id"))
     }
 
     @Test func markdownFrontmatterEscapesQuotesInTitle() {
